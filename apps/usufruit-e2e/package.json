@@ -1,0 +1,10 @@
+{
+  "name": "@usufruit/usufruit-e2e",
+  "version": "0.0.1",
+  "private": true,
+  "nx": {
+    "implicitDependencies": [
+      "@usufruit/usufruit"
+    ]
+  }
+}
