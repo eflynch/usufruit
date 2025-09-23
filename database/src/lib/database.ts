@@ -209,6 +209,20 @@ export class DatabaseService {
     });
   }
 
+  static async updateLibrarianDetails(librarianId: string, data: { name?: string; contactInfo?: string }) {
+    return prisma.librarian.update({
+      where: { id: librarianId },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.contactInfo !== undefined && { contactInfo: data.contactInfo }),
+      },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+  }
+
   // Book operations
   static async createBook(data: {
     title: string;

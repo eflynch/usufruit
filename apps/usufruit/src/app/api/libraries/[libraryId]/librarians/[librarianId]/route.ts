@@ -63,9 +63,9 @@ export async function PATCH(
   try {
     const { libraryId, librarianId } = await params;
     const body = await request.json();
-    const { isSuper } = body;
+    const { isSuper, name, contactInfo } = body;
 
-    // Require authorization for updating super status
+    // Require authorization for updating librarian details
     const authHeader = request.headers.get('authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json(
@@ -93,13 +93,39 @@ export async function PATCH(
       );
     }
 
-    // Update super status
+    let updatedLibrarian;
+
+    // Handle super status updates (only super librarians can do this)
     if (typeof isSuper === 'boolean') {
-      const updatedLibrarian = await DatabaseService.updateLibrarianSuperStatus(
+      if (!authenticatedLibrarian.isSuper) {
+        return NextResponse.json(
+          { error: 'Only super librarians can change super status' },
+          { status: 403 }
+        );
+      }
+      updatedLibrarian = await DatabaseService.updateLibrarianSuperStatus(
         librarianId,
         isSuper,
         authenticatedLibrarian.id
       );
+    }
+
+    // Handle name and contact info updates (users can edit their own, super librarians can edit anyone's)
+    if (name !== undefined || contactInfo !== undefined) {
+      if (!authenticatedLibrarian.isSuper && authenticatedLibrarian.id !== librarianId) {
+        return NextResponse.json(
+          { error: 'You can only edit your own details, or be a super librarian' },
+          { status: 403 }
+        );
+      }
+
+      updatedLibrarian = await DatabaseService.updateLibrarianDetails(librarianId, {
+        name,
+        contactInfo
+      });
+    }
+
+    if (updatedLibrarian) {
       return NextResponse.json(updatedLibrarian);
     }
 

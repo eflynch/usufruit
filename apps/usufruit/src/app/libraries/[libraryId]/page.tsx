@@ -313,8 +313,8 @@ export default function LibraryPage() {
                 <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>name</th>
                 <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>contact</th>
                 <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>role</th>
-                {auth?.isSuper && (
-                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>actions</th>
+                {(auth?.isSuper || auth) && (
+                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px' }}>actions</th>
                 )}
               </tr>
             </thead>
@@ -331,22 +331,54 @@ export default function LibraryPage() {
                   <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
                     {librarian.isSuper ? 'super librarian' : 'librarian'}
                   </td>
-                  {auth?.isSuper && (
-                    <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                      <button
-                        onClick={() => copyLoginLink(librarian.secretKey, librarian.name)}
-                        style={{
-                          padding: '4px 8px',
-                          fontSize: '12px',
-                          border: '1px solid #999',
-                          backgroundColor: '#f7fafc',
-                          cursor: 'pointer',
-                          marginRight: '4px'
-                        }}
-                      >
-                        copy login link
-                      </button>
-                      {!librarian.isSuper && (
+                  {(auth?.isSuper || auth) && (
+                    <td style={{ padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px', whiteSpace: 'nowrap' }}>
+                      {auth?.isSuper && (
+                        <>
+                          <button
+                            onClick={() => copyLoginLink(librarian.secretKey, librarian.name)}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              border: '1px solid #999',
+                              backgroundColor: '#f7fafc',
+                              cursor: 'pointer',
+                              marginRight: '4px',
+                              fontFamily: 'inherit',
+                              boxSizing: 'border-box',
+                              verticalAlign: 'top',
+                              lineHeight: '16px',
+                              height: '28px'
+                            }}
+                          >
+                            copy login link
+                          </button>
+                        </>
+                      )}
+                      {(auth?.isSuper || auth?.id === librarian.id) && (
+                        <Link
+                          href={`/libraries/${libraryId}/librarians/${librarian.id}/edit`}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            border: '1px solid #999',
+                            backgroundColor: '#e6f3ff',
+                            cursor: 'pointer',
+                            marginRight: '4px',
+                            textDecoration: 'none',
+                            color: 'black',
+                            display: 'inline-block',
+                            fontFamily: 'inherit',
+                            boxSizing: 'border-box',
+                            verticalAlign: 'top',
+                            lineHeight: '16px',
+                            height: '28px'
+                          }}
+                        >
+                          edit
+                        </Link>
+                      )}
+                      {auth?.isSuper && !librarian.isSuper && (
                         <button
                           onClick={() => promoteLibrarian(librarian.id, librarian.name)}
                           disabled={promotingLibrarianId === librarian.id}
@@ -356,13 +388,18 @@ export default function LibraryPage() {
                             border: '1px solid #999',
                             backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fff3cd',
                             cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
-                            marginRight: '4px'
+                            marginRight: '4px',
+                            fontFamily: 'inherit',
+                            boxSizing: 'border-box',
+                            verticalAlign: 'top',
+                            lineHeight: '16px',
+                            height: '28px'
                           }}
                         >
                           {promotingLibrarianId === librarian.id ? 'promoting...' : 'promote to super'}
                         </button>
                       )}
-                      {librarian.isSuper && librarian.id !== auth?.id && (
+                      {auth?.isSuper && librarian.isSuper && librarian.id !== auth?.id && (
                         <button
                           onClick={() => demoteLibrarian(librarian.id, librarian.name)}
                           disabled={promotingLibrarianId === librarian.id}
@@ -372,7 +409,12 @@ export default function LibraryPage() {
                             border: '1px solid #999',
                             backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fee2e2',
                             cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
-                            marginRight: '4px'
+                            marginRight: '4px',
+                            fontFamily: 'inherit',
+                            boxSizing: 'border-box',
+                            verticalAlign: 'top',
+                            lineHeight: '16px',
+                            height: '28px'
                           }}
                         >
                           {promotingLibrarianId === librarian.id ? 'demoting...' : 'remove super'}
@@ -595,6 +637,12 @@ export default function LibraryPage() {
       
       <p style={{ margin: '0 0 20px 0' }}>
         <Link href="/" style={{ color: 'blue' }}>&larr; back to home</Link>
+        {auth?.isSuper && (
+          <>
+            {' • '}
+            <Link href={`/libraries/${libraryId}/edit`} style={{ color: 'blue' }}>edit library</Link>
+          </>
+        )}
       </p>
 
       <LibraryAuthStatus libraryId={libraryId} libraryName={library.name} />

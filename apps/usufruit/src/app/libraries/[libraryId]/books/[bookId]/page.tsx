@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
+import Link from 'next/link';
 import { Book, Loan } from '@usufruit/models';
 import LibraryAuthStatus from '../../../../../components/LibraryAuthStatus';
 import { LibraryPageContainer, BackToLibraryLink, LibrarySectionDivider } from '../../../../../components/LibraryPageComponents';
@@ -182,6 +183,13 @@ export default function BookPage() {
       <h1>{book.title}</h1>
       
       <BackToLibraryLink libraryId={libraryId} />
+      {(auth?.isSuper || auth?.id === book.librarianId) && (
+        <p style={{ margin: '10px 0' }}>
+          <Link href={`/libraries/${libraryId}/books/${bookId}/edit`} style={{ color: 'blue' }}>
+            edit book
+          </Link>
+        </p>
+      )}
 
       <LibraryAuthStatus libraryId={libraryId} />
 
