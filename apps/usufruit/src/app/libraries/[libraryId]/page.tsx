@@ -73,6 +73,26 @@ export default function LibraryPage() {
   
   const myBooks = books.filter(book => book.librarianId === auth?.id);
 
+  // Helper function to check if a book is overdue
+  const isBookOverdue = (book: Book) => {
+    if (!auth?.id) return false;
+    const myLoan = book.loans?.find(loan => loan.librarianId === auth.id && !loan.returnedAt);
+    if (!myLoan?.dueDate) return false;
+    return new Date(myLoan.dueDate) < new Date();
+  };
+
+  // Sort borrowed books to put overdue ones first
+  const sortedMyBorrowedBooks = [...myBorrowedBooks].sort((a, b) => {
+    const aOverdue = isBookOverdue(a);
+    const bOverdue = isBookOverdue(b);
+    if (aOverdue && !bOverdue) return -1;
+    if (!aOverdue && bOverdue) return 1;
+    return 0;
+  });
+
+  // Count overdue books
+  const overdueCount = myBorrowedBooks.filter(isBookOverdue).length;
+
   // Tab rendering functions
   const renderTabButtons = () => (
     <div style={{ 
@@ -84,7 +104,13 @@ export default function LibraryPage() {
       {[
         { id: 'books', label: 'All Books', count: books.length },
         { id: 'librarians', label: 'Librarians', count: librarians.length, authRequired: true },
-        { id: 'my-borrowed', label: 'My Borrowed', count: myBorrowedBooks.length, authRequired: true },
+        { 
+          id: 'my-borrowed', 
+          label: 'My Borrowed', 
+          count: myBorrowedBooks.length, 
+          overdueCount: overdueCount > 0 ? overdueCount : undefined,
+          authRequired: true 
+        },
         { id: 'my-books', label: 'My Books', count: myBooks.length, authRequired: true }
       ].map(tab => {
         if (tab.authRequired && !isAuthenticated) return null;
@@ -106,6 +132,15 @@ export default function LibraryPage() {
             }}
           >
             {tab.label} ({tab.count})
+            {tab.overdueCount !== undefined && tab.overdueCount > 0 && (
+              <span style={{ 
+                color: '#dc2626', 
+                fontWeight: 'bold',
+                marginLeft: '4px'
+              }}>
+                [{tab.overdueCount} overdue]
+              </span>
+            )}
           </button>
         );
       }).filter(Boolean)}
@@ -202,7 +237,19 @@ export default function LibraryPage() {
 
   const renderMyBorrowedTab = () => (
     <>
-      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>my borrowed books ({myBorrowedBooks.length})</h2>
+      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>
+        my borrowed books ({myBorrowedBooks.length})
+        {overdueCount > 0 && (
+          <span style={{ 
+            color: '#dc2626', 
+            fontSize: '14px', 
+            fontWeight: 'bold',
+            marginLeft: '8px'
+          }}>
+            [{overdueCount} overdue]
+          </span>
+        )}
+      </h2>
       {myBorrowedBooks.length === 0 ? (
         <p style={{ margin: '0 0 15px 0', color: '#666' }}>you haven&apos;t borrowed any books</p>
       ) : (
@@ -216,24 +263,44 @@ export default function LibraryPage() {
             </tr>
           </thead>
           <tbody>
-            {myBorrowedBooks.map((book) => {
+            {sortedMyBorrowedBooks.map((book) => {
               const myLoan = book.loans?.find(loan => loan.librarianId === auth?.id);
+              const isOverdue = isBookOverdue(book);
+              const rowStyle = isOverdue ? { backgroundColor: '#fef2f2' } : {};
+              
               return (
-                <tr key={book.id}>
+                <tr key={book.id} style={rowStyle}>
                   <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
                     <Link href={`/libraries/${libraryId}/books/${book.id}`} style={{ color: 'blue' }}>
                       {book.title}
                     </Link>
+                    {isOverdue && (
+                      <span style={{ 
+                        color: '#dc2626', 
+                        fontSize: '12px', 
+                        fontWeight: 'bold',
+                        marginLeft: '8px'
+                      }}>
+                        OVERDUE
+                      </span>
+                    )}
                   </td>
                   <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
                     {myLoan ? new Date(myLoan.borrowedAt).toLocaleDateString() : '—'}
                   </td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                  <td style={{ 
+                    padding: '4px 8px', 
+                    border: '1px solid #999',
+                    color: isOverdue ? '#dc2626' : 'inherit',
+                    fontWeight: isOverdue ? 'bold' : 'normal'
+                  }}>
                     {myLoan?.dueDate ? new Date(myLoan.dueDate).toLocaleDateString() : '—'}
                   </td>
                   <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
                     {myLoan?.returnedAt ? (
                       <span style={{ color: 'green', fontSize: '12px' }}>returned</span>
+                    ) : isOverdue ? (
+                      <span style={{ color: '#dc2626', fontSize: '12px', fontWeight: 'bold' }}>OVERDUE</span>
                     ) : (
                       <span style={{ color: 'orange', fontSize: '12px' }}>borrowed</span>
                     )}
@@ -368,6 +435,24 @@ export default function LibraryPage() {
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
         {library.description || 'no description'}
       </p>
+      
+      {/* Overdue books warning */}
+      {isAuthenticated && overdueCount > 0 && (
+        <div style={{ 
+          margin: '0 0 20px 0', 
+          padding: '10px', 
+          backgroundColor: '#fef2f2', 
+          border: '1px solid #fecaca',
+          borderRadius: '4px'
+        }}>
+          <strong style={{ color: '#dc2626' }}>
+            ⚠️ You have {overdueCount} overdue book{overdueCount > 1 ? 's' : ''}!
+          </strong>
+          <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>
+            Check the &ldquo;My Borrowed&rdquo; tab to see details.
+          </span>
+        </div>
+      )}
       
       <p style={{ margin: '0 0 20px 0' }}>
         <Link href="/" style={{ color: 'blue' }}>&larr; back to home</Link>
