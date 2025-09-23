@@ -254,8 +254,8 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
-# Build the application
-RUN npm run build
+# Build the application using NX (handles monorepo dependencies)
+RUN npx nx build usufruit
 
 # Production stage
 FROM node:18-alpine AS runner
@@ -266,12 +266,17 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built application
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+# Copy built application (NX builds in the app directory)
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./apps/usufruit/.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/package.json ./apps/usufruit/package.json
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/public ./apps/usufruit/public
+
+# Copy built dependencies
+COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist
+
+# Copy node_modules (needed for runtime)
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
 # Copy Prisma files
 COPY --from=builder --chown=nextjs:nodejs /app/database ./database
@@ -288,6 +293,58 @@ CMD ["npm", "run", "start:prod"]
 EOF
 
     log_success "Dockerfile created!"
+    
+    # Create .dockerignore for optimized builds
+    if [ -f .dockerignore ]; then
+        log_info ".dockerignore already exists, backing up and recreating..."
+        cp .dockerignore .dockerignore.backup.$(date +%s)
+    fi
+    
+    cat > .dockerignore << 'EOF'
+# Dependencies
+node_modules
+npm-debug.log*
+
+# Production builds
+.next
+dist
+
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Development files
+.git
+.gitignore
+README.md
+DEPLOYMENT.md
+QUICK_DEPLOY.md
+
+# IDE
+.vscode
+.idea
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Coverage
+coverage
+
+# Testing
+.nyc_output
+
+# Misc
+.eslintcache
+EOF
+
+    log_success ".dockerignore created!"
 }
 
 # Function to create Nginx configuration
