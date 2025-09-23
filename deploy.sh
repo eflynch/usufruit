@@ -36,6 +36,21 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
 }
 
+# Function to detect and use correct Docker Compose command
+get_docker_compose_cmd() {
+    if command -v docker-compose >/dev/null 2>&1; then
+        echo "docker-compose"
+    elif docker compose version >/dev/null 2>&1; then
+        echo "docker compose"
+    else
+        log_error "Neither 'docker-compose' nor 'docker compose' is available"
+        exit 1
+    fi
+}
+
+# Set the Docker Compose command
+DOCKER_COMPOSE_CMD=""
+
 # Function to prompt for configuration
 configure_deployment() {
     log_info "Configuring deployment settings..."
@@ -365,17 +380,38 @@ setup_ssl() {
     mkdir -p certbot-webroot
     
     # First, start nginx without SSL to handle the ACME challenge
-    docker-compose up -d nginx
+    $DOCKER_COMPOSE_CMD up -d nginx
     
     # Get SSL certificate
-    docker-compose run --rm certbot
+    $DOCKER_COMPOSE_CMD run --rm certbot
     
     # Restart nginx with SSL
-    docker-compose restart nginx
+    $DOCKER_COMPOSE_CMD restart nginx
+    
+    # Create SSL renewal script
+    cat > ssl-renew.sh << 'EOF'
+#!/bin/bash
+# SSL certificate renewal script
+
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
+cd "$(dirname "$0")"
+$DOCKER_COMPOSE run --rm certbot renew --quiet && $DOCKER_COMPOSE restart nginx
+EOF
+
+    chmod +x ssl-renew.sh
     
     # Set up auto-renewal
     cat > /etc/cron.d/certbot-renew << EOF
-0 12 * * * docker-compose -f $(pwd)/docker-compose.yml run --rm certbot renew --quiet && docker-compose -f $(pwd)/docker-compose.yml restart nginx
+0 12 * * * cd $(pwd) && ./ssl-renew.sh
 EOF
 
     log_success "SSL certificates set up with auto-renewal!"
@@ -401,6 +437,16 @@ log_success() {
 
 log_info "Starting Usufruit Library Management System..."
 
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
 # Load environment variables
 if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
@@ -408,11 +454,11 @@ fi
 
 # Run database migrations
 log_info "Running database migrations..."
-docker-compose exec -T app npx prisma migrate deploy
+$DOCKER_COMPOSE exec -T app npx prisma migrate deploy
 
 # Start all services
 log_info "Starting all services..."
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 
 log_success "Usufruit is now running!"
 log_info "Visit https://$(grep NEXTAUTH_URL .env | cut -d'=' -f2 | sed 's|https://||') to access your library system"
@@ -442,18 +488,28 @@ log_success() {
 
 log_info "Updating Usufruit Library Management System..."
 
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
 # Pull latest changes
 git pull origin main
 
 # Rebuild and restart services
 log_info "Rebuilding application..."
-docker-compose build app
+$DOCKER_COMPOSE build app
 
 log_info "Running database migrations..."
-docker-compose run --rm app npx prisma migrate deploy
+$DOCKER_COMPOSE run --rm app npx prisma migrate deploy
 
 log_info "Restarting services..."
-docker-compose up -d
+$DOCKER_COMPOSE up -d
 
 log_success "Usufruit has been updated successfully!"
 EOF
@@ -471,11 +527,21 @@ create_monitoring_script() {
 
 # Usufruit monitoring script
 
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
 echo "=== Usufruit System Status ==="
 echo
 
 echo "Docker Services:"
-docker-compose ps
+$DOCKER_COMPOSE ps
 
 echo
 echo "System Resources:"
@@ -488,11 +554,11 @@ df -h
 
 echo
 echo "Recent Logs (last 20 lines):"
-docker-compose logs --tail=20
+$DOCKER_COMPOSE logs --tail=20
 
 echo
 echo "SSL Certificate Status:"
-docker-compose exec nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)"
+$DOCKER_COMPOSE exec nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)"
 EOF
 
     chmod +x monitor.sh
@@ -550,10 +616,20 @@ log_success() {
     echo -e "\033[0;32m[SUCCESS]\033[0m $1"
 }
 
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
 log_info "Creating database backup..."
 
 # Create database backup
-docker-compose exec -T postgres pg_dump -U usufruit usufruit > "${BACKUP_DIR}/${BACKUP_FILE}"
+$DOCKER_COMPOSE exec -T postgres pg_dump -U usufruit usufruit > "${BACKUP_DIR}/${BACKUP_FILE}"
 
 # Compress backup
 gzip "${BACKUP_DIR}/${BACKUP_FILE}"
@@ -584,6 +660,11 @@ main() {
     configure_deployment
     check_prerequisites
     install_docker
+    
+    # Set up Docker Compose command after Docker installation
+    DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
+    log_info "Using Docker Compose command: $DOCKER_COMPOSE_CMD"
+    
     create_dockerfile
     create_docker_compose
     create_nginx_config
@@ -595,18 +676,18 @@ main() {
     setup_firewall
     
     log_info "Building and starting services..."
-    docker-compose build
-    docker-compose up -d postgres
+    $DOCKER_COMPOSE_CMD build
+    $DOCKER_COMPOSE_CMD up -d postgres
     
     # Wait for database to be ready
     log_info "Waiting for database to be ready..."
     sleep 10
     
     # Run migrations
-    docker-compose run --rm app npx prisma migrate deploy
+    $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy
     
     # Start all services
-    docker-compose up -d
+    $DOCKER_COMPOSE_CMD up -d
     
     setup_ssl
     
