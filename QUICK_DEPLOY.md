@@ -28,9 +28,15 @@ ssh your-username@your-server-ip
 git clone https://github.com/eflynch/usufruit.git
 cd usufruit
 
-# Run the automated deployment
+# Run the automated deployment (safe to re-run)
 sudo ./deploy.sh
 ```
+
+**Note:** The deployment script is **idempotent** - you can safely run it multiple times. It will:
+- Skip already-installed components (like Docker)
+- Backup existing configuration files before replacing them
+- Reuse existing SSL certificates and secrets
+- Prompt before overwriting existing deployments
 
 ### 3. Follow the Prompts
 The script will ask for:

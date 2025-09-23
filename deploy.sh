@@ -102,31 +102,44 @@ check_prerequisites() {
 install_docker() {
     log_info "Installing Docker and Docker Compose..."
     
+    # Check if Docker is already installed
+    if command -v docker >/dev/null 2>&1; then
+        log_success "Docker is already installed, skipping installation"
+        return 0
+    fi
+    
     # Update package index
     apt-get update
     
     # Install prerequisites
     apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
     
-    # Add Docker's official GPG key
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    # Check if Docker GPG key already exists
+    if [ ! -f /usr/share/keyrings/docker-archive-keyring.gpg ]; then
+        # Add Docker's official GPG key
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    fi
     
-    # Add Docker repository
-    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    
-    # Update package index again
-    apt-get update
+    # Check if Docker repository is already added
+    if [ ! -f /etc/apt/sources.list.d/docker.list ]; then
+        # Add Docker repository
+        echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        # Update package index again
+        apt-get update
+    fi
     
     # Install Docker
     apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
     
-    # Start and enable Docker
-    systemctl start docker
-    systemctl enable docker
+    # Start and enable Docker (idempotent)
+    systemctl start docker || true
+    systemctl enable docker || true
     
-    # Add current user to docker group (if not root)
+    # Add current user to docker group (if not root and not already in group)
     if [ "$SUDO_USER" ]; then
-        usermod -aG docker $SUDO_USER
+        if ! groups $SUDO_USER | grep -q docker; then
+            usermod -aG docker $SUDO_USER
+        fi
     fi
     
     log_success "Docker installed successfully!"
@@ -135,6 +148,11 @@ install_docker() {
 # Function to create Docker Compose configuration
 create_docker_compose() {
     log_info "Creating Docker Compose configuration..."
+    
+    if [ -f docker-compose.yml ]; then
+        log_info "docker-compose.yml already exists, backing up and recreating..."
+        cp docker-compose.yml docker-compose.yml.backup.$(date +%s)
+    fi
     
     cat > docker-compose.yml << EOF
 version: '3.8'
@@ -210,6 +228,11 @@ EOF
 create_dockerfile() {
     log_info "Creating Dockerfile..."
     
+    if [ -f Dockerfile ]; then
+        log_info "Dockerfile already exists, backing up and recreating..."
+        cp Dockerfile Dockerfile.backup.$(date +%s)
+    fi
+    
     cat > Dockerfile << 'EOF'
 # Build stage
 FROM node:18-alpine AS builder
@@ -270,6 +293,11 @@ EOF
 # Function to create Nginx configuration
 create_nginx_config() {
     log_info "Creating Nginx configuration..."
+    
+    if [ -f nginx.conf ]; then
+        log_info "nginx.conf already exists, backing up and recreating..."
+        cp nginx.conf nginx.conf.backup.$(date +%s)
+    fi
     
     cat > nginx.conf << EOF
 events {
@@ -357,8 +385,19 @@ EOF
 generate_secrets() {
     log_info "Generating secure secrets..."
     
-    # Generate NEXTAUTH_SECRET
-    NEXTAUTH_SECRET=$(openssl rand -base64 32)
+    if [ -f .env ]; then
+        log_info ".env file already exists, backing up and regenerating..."
+        cp .env .env.backup.$(date +%s)
+    fi
+    
+    # Generate NEXTAUTH_SECRET (or reuse existing one)
+    if [ -f .env.backup.* ] && grep -q "NEXTAUTH_SECRET=" .env.backup.* 2>/dev/null; then
+        NEXTAUTH_SECRET=$(grep "NEXTAUTH_SECRET=" .env.backup.* | tail -1 | cut -d'=' -f2)
+        log_info "Reusing existing NEXTAUTH_SECRET from backup"
+    else
+        NEXTAUTH_SECRET=$(openssl rand -base64 32)
+        log_info "Generated new NEXTAUTH_SECRET"
+    fi
     
     # Create .env file
     cat > .env << EOF
@@ -382,13 +421,24 @@ setup_ssl() {
     # First, start nginx without SSL to handle the ACME challenge
     $DOCKER_COMPOSE_CMD up -d nginx
     
-    # Get SSL certificate
-    $DOCKER_COMPOSE_CMD run --rm certbot
+    # Check if SSL certificate already exists
+    if $DOCKER_COMPOSE_CMD exec nginx test -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 2>/dev/null; then
+        log_info "SSL certificate already exists for ${DOMAIN}, skipping certificate generation..."
+    else
+        log_info "Generating SSL certificate for ${DOMAIN}..."
+        # Get SSL certificate
+        $DOCKER_COMPOSE_CMD run --rm certbot
+    fi
     
     # Restart nginx with SSL
     $DOCKER_COMPOSE_CMD restart nginx
     
     # Create SSL renewal script
+    if [ -f ssl-renew.sh ]; then
+        log_info "ssl-renew.sh already exists, backing up and recreating..."
+        cp ssl-renew.sh ssl-renew.sh.backup.$(date +%s)
+    fi
+    
     cat > ssl-renew.sh << 'EOF'
 #!/bin/bash
 # SSL certificate renewal script
@@ -409,10 +459,15 @@ EOF
 
     chmod +x ssl-renew.sh
     
-    # Set up auto-renewal
-    cat > /etc/cron.d/certbot-renew << EOF
+    # Set up auto-renewal (only if not already exists)
+    if [ ! -f /etc/cron.d/certbot-renew ]; then
+        cat > /etc/cron.d/certbot-renew << EOF
 0 12 * * * cd $(pwd) && ./ssl-renew.sh
 EOF
+        log_info "SSL auto-renewal cron job created"
+    else
+        log_info "SSL auto-renewal cron job already exists, skipping..."
+    fi
 
     log_success "SSL certificates set up with auto-renewal!"
 }
@@ -420,6 +475,11 @@ EOF
 # Function to create startup script
 create_startup_script() {
     log_info "Creating startup script..."
+    
+    if [ -f start.sh ]; then
+        log_info "start.sh already exists, backing up and recreating..."
+        cp start.sh start.sh.backup.$(date +%s)
+    fi
     
     cat > start.sh << 'EOF'
 #!/bin/bash
@@ -472,6 +532,11 @@ EOF
 create_update_script() {
     log_info "Creating update script..."
     
+    if [ -f update.sh ]; then
+        log_info "update.sh already exists, backing up and recreating..."
+        cp update.sh update.sh.backup.$(date +%s)
+    fi
+    
     cat > update.sh << 'EOF'
 #!/bin/bash
 
@@ -521,6 +586,11 @@ EOF
 # Function to create monitoring script
 create_monitoring_script() {
     log_info "Creating monitoring script..."
+    
+    if [ -f monitor.sh ]; then
+        log_info "monitor.sh already exists, backing up and recreating..."
+        cp monitor.sh monitor.sh.backup.$(date +%s)
+    fi
     
     cat > monitor.sh << 'EOF'
 #!/bin/bash
@@ -572,22 +642,28 @@ setup_firewall() {
     # Install ufw if not present
     apt-get install -y ufw
     
-    # Reset firewall rules
-    ufw --force reset
-    
-    # Set default policies
-    ufw default deny incoming
-    ufw default allow outgoing
-    
-    # Allow SSH
-    ufw allow ssh
-    
-    # Allow HTTP and HTTPS
-    ufw allow 80/tcp
-    ufw allow 443/tcp
-    
-    # Enable firewall
-    ufw --force enable
+    # Only reset if not already configured for our service
+    if ! ufw status | grep -q "80/tcp"; then
+        log_info "Configuring firewall rules..."
+        # Reset firewall rules
+        ufw --force reset
+        
+        # Set default policies
+        ufw default deny incoming
+        ufw default allow outgoing
+        
+        # Allow SSH
+        ufw allow ssh
+        
+        # Allow HTTP and HTTPS
+        ufw allow 80/tcp
+        ufw allow 443/tcp
+        
+        # Enable firewall
+        ufw --force enable
+    else
+        log_info "Firewall already configured, skipping..."
+    fi
     
     log_success "Firewall configured!"
 }
@@ -597,6 +673,11 @@ create_backup_script() {
     log_info "Creating backup script..."
     
     mkdir -p backups
+    
+    if [ -f backup.sh ]; then
+        log_info "backup.sh already exists, backing up and recreating..."
+        cp backup.sh backup.sh.backup.$(date +%s)
+    fi
     
     cat > backup.sh << 'EOF'
 #!/bin/bash
@@ -645,10 +726,15 @@ EOF
 
     chmod +x backup.sh
     
-    # Setup daily backups
-    cat > /etc/cron.d/usufruit-backup << EOF
+    # Setup daily backups (only if not already exists)
+    if [ ! -f /etc/cron.d/usufruit-backup ]; then
+        cat > /etc/cron.d/usufruit-backup << EOF
 0 2 * * * cd $(pwd) && ./backup.sh
 EOF
+        log_info "Daily backup cron job created"
+    else
+        log_info "Daily backup cron job already exists, skipping..."
+    fi
 
     log_success "Backup script created with daily automation!"
 }
@@ -656,6 +742,18 @@ EOF
 # Main deployment function
 main() {
     log_info "Starting Usufruit deployment..."
+    
+    # Check if this appears to be a re-run
+    if [ -f docker-compose.yml ] && [ -f .env ]; then
+        log_warning "Deployment files already exist. This appears to be a re-run."
+        log_info "Existing files will be backed up before being replaced."
+        read -p "Continue with deployment? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Deployment cancelled by user."
+            exit 0
+        fi
+    fi
     
     configure_deployment
     check_prerequisites
@@ -676,18 +774,48 @@ main() {
     setup_firewall
     
     log_info "Building and starting services..."
-    $DOCKER_COMPOSE_CMD build
-    $DOCKER_COMPOSE_CMD up -d postgres
+    
+    # Build the application
+    if ! $DOCKER_COMPOSE_CMD build; then
+        log_error "Failed to build application containers"
+        exit 1
+    fi
+    
+    # Start database first
+    if ! $DOCKER_COMPOSE_CMD up -d postgres; then
+        log_error "Failed to start database"
+        exit 1
+    fi
     
     # Wait for database to be ready
     log_info "Waiting for database to be ready..."
     sleep 10
     
+    # Check if database is responsive
+    for i in {1..30}; do
+        if $DOCKER_COMPOSE_CMD exec -T postgres pg_isready -U usufruit; then
+            log_success "Database is ready!"
+            break
+        fi
+        if [ $i -eq 30 ]; then
+            log_error "Database failed to become ready within 30 attempts"
+            exit 1
+        fi
+        log_info "Waiting for database... (attempt $i/30)"
+        sleep 2
+    done
+    
     # Run migrations
-    $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy
+    if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy; then
+        log_error "Database migrations failed"
+        exit 1
+    fi
     
     # Start all services
-    $DOCKER_COMPOSE_CMD up -d
+    if ! $DOCKER_COMPOSE_CMD up -d; then
+        log_error "Failed to start all services"
+        exit 1
+    fi
     
     setup_ssl
     
