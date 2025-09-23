@@ -2,7 +2,13 @@
   "name": "@usufruit/source",
   "version": "0.0.0",
   "license": "MIT",
-  "scripts": {},
+  "scripts": {
+    "build": "nx build usufruit",
+    "start:prod": "cd apps/usufruit && npm start",
+    "dev": "nx dev usufruit",
+    "migrate": "prisma migrate deploy --schema=./database/schema.prisma",
+    "generate": "prisma generate --schema=./database/schema.prisma"
+  },
   "private": true,
   "dependencies": {
     "@prisma/client": "^6.16.2",

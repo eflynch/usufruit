@@ -1,0 +1,629 @@
+#!/bin/bash
+
+# Usufruit Library Management System - Deployment Script
+# This script sets up the complete production environment with Docker, Nginx, and SSL
+
+set -e  # Exit on any error
+
+# Configuration
+DOMAIN=""
+EMAIL=""
+PROJECT_NAME="usufruit"
+DB_PASSWORD=""
+NODE_ENV="production"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Helper functions
+log_info() {
+    echo -e "${BLUE}[INFO]${NC} $1"
+}
+
+log_success() {
+    echo -e "${GREEN}[SUCCESS]${NC} $1"
+}
+
+log_warning() {
+    echo -e "${YELLOW}[WARNING]${NC} $1"
+}
+
+log_error() {
+    echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Function to prompt for configuration
+configure_deployment() {
+    log_info "Configuring deployment settings..."
+    
+    if [ -z "$DOMAIN" ]; then
+        read -p "Enter your domain name (e.g., library.yourdomain.com): " DOMAIN
+    fi
+    
+    if [ -z "$EMAIL" ]; then
+        read -p "Enter your email for SSL certificates: " EMAIL
+    fi
+    
+    if [ -z "$DB_PASSWORD" ]; then
+        read -s -p "Enter a secure database password: " DB_PASSWORD
+        echo
+    fi
+    
+    log_success "Configuration completed!"
+}
+
+# Function to check prerequisites
+check_prerequisites() {
+    log_info "Checking prerequisites..."
+    
+    # Check if running as root or with sudo
+    if [ "$EUID" -ne 0 ]; then
+        log_error "Please run this script with sudo or as root"
+        exit 1
+    fi
+    
+    # Check if domain resolves to this server
+    SERVER_IP=$(curl -s ifconfig.me)
+    DOMAIN_IP=$(dig +short $DOMAIN)
+    
+    if [ "$SERVER_IP" != "$DOMAIN_IP" ]; then
+        log_warning "Domain $DOMAIN does not resolve to this server IP ($SERVER_IP)"
+        log_warning "Please update your DNS records before continuing"
+        read -p "Continue anyway? (y/N): " -n 1 -r
+        echo
+        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+            exit 1
+        fi
+    fi
+    
+    log_success "Prerequisites check completed!"
+}
+
+# Function to install Docker and Docker Compose
+install_docker() {
+    log_info "Installing Docker and Docker Compose..."
+    
+    # Update package index
+    apt-get update
+    
+    # Install prerequisites
+    apt-get install -y apt-transport-https ca-certificates curl gnupg lsb-release
+    
+    # Add Docker's official GPG key
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+    
+    # Add Docker repository
+    echo "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    
+    # Update package index again
+    apt-get update
+    
+    # Install Docker
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    
+    # Start and enable Docker
+    systemctl start docker
+    systemctl enable docker
+    
+    # Add current user to docker group (if not root)
+    if [ "$SUDO_USER" ]; then
+        usermod -aG docker $SUDO_USER
+    fi
+    
+    log_success "Docker installed successfully!"
+}
+
+# Function to create Docker Compose configuration
+create_docker_compose() {
+    log_info "Creating Docker Compose configuration..."
+    
+    cat > docker-compose.yml << EOF
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: usufruit
+      POSTGRES_USER: usufruit
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
+      - NEXTAUTH_SECRET=\${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=https://${DOMAIN}
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+    depends_on:
+      - app
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-var:/var/lib/letsencrypt
+      - ./certbot-webroot:/var/www/certbot
+    command: certonly --webroot --webroot-path=/var/www/certbot --email ${EMAIL} --agree-tos --no-eff-email -d ${DOMAIN}
+
+volumes:
+  postgres_data:
+  certbot-etc:
+  certbot-var:
+
+networks:
+  app-network:
+    driver: bridge
+EOF
+
+    log_success "Docker Compose configuration created!"
+}
+
+# Function to create Dockerfile
+create_dockerfile() {
+    log_info "Creating Dockerfile..."
+    
+    cat > Dockerfile << 'EOF'
+# Build stage
+FROM node:18-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY apps/usufruit/package*.json ./apps/usufruit/
+COPY database/package*.json ./database/
+COPY models/package*.json ./models/
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build the application
+RUN npm run build
+
+# Production stage
+FROM node:18-alpine AS runner
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Copy built application
+COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./apps/usufruit/.next
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/package.json ./apps/usufruit/package.json
+
+# Copy Prisma files
+COPY --from=builder --chown=nextjs:nodejs /app/database ./database
+
+USER nextjs
+
+EXPOSE 3000
+
+ENV PORT 3000
+ENV HOSTNAME "0.0.0.0"
+
+# Start the application
+CMD ["npm", "run", "start:prod"]
+EOF
+
+    log_success "Dockerfile created!"
+}
+
+# Function to create Nginx configuration
+create_nginx_config() {
+    log_info "Creating Nginx configuration..."
+    
+    cat > nginx.conf << EOF
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream app {
+        server app:3000;
+    }
+
+    # Rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+
+    # Redirect HTTP to HTTPS
+    server {
+        listen 80;
+        server_name ${DOMAIN};
+        
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+        
+        location / {
+            return 301 https://\$server_name\$request_uri;
+        }
+    }
+
+    # HTTPS server
+    server {
+        listen 443 ssl http2;
+        server_name ${DOMAIN};
+
+        # SSL configuration
+        ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+
+        # Security headers
+        add_header X-Frame-Options DENY;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-XSS-Protection "1; mode=block";
+        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
+
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+
+        # Client max body size (for file uploads)
+        client_max_body_size 10M;
+
+        location / {
+            proxy_pass http://app;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto \$scheme;
+            proxy_cache_bypass \$http_upgrade;
+            
+            # Rate limiting
+            limit_req zone=api burst=20 nodelay;
+        }
+
+        # Static file caching
+        location /_next/static/ {
+            proxy_pass http://app;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
+EOF
+
+    log_success "Nginx configuration created!"
+}
+
+# Function to generate secure secrets
+generate_secrets() {
+    log_info "Generating secure secrets..."
+    
+    # Generate NEXTAUTH_SECRET
+    NEXTAUTH_SECRET=$(openssl rand -base64 32)
+    
+    # Create .env file
+    cat > .env << EOF
+DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
+NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+NEXTAUTH_URL=https://${DOMAIN}
+NODE_ENV=production
+EOF
+
+    chmod 600 .env
+    log_success "Secrets generated and stored in .env file!"
+}
+
+# Function to setup SSL certificates
+setup_ssl() {
+    log_info "Setting up SSL certificates..."
+    
+    # Create webroot directory for certbot
+    mkdir -p certbot-webroot
+    
+    # First, start nginx without SSL to handle the ACME challenge
+    docker-compose up -d nginx
+    
+    # Get SSL certificate
+    docker-compose run --rm certbot
+    
+    # Restart nginx with SSL
+    docker-compose restart nginx
+    
+    # Set up auto-renewal
+    cat > /etc/cron.d/certbot-renew << EOF
+0 12 * * * docker-compose -f $(pwd)/docker-compose.yml run --rm certbot renew --quiet && docker-compose -f $(pwd)/docker-compose.yml restart nginx
+EOF
+
+    log_success "SSL certificates set up with auto-renewal!"
+}
+
+# Function to create startup script
+create_startup_script() {
+    log_info "Creating startup script..."
+    
+    cat > start.sh << 'EOF'
+#!/bin/bash
+
+# Usufruit startup script
+set -e
+
+log_info() {
+    echo -e "\033[0;34m[INFO]\033[0m $1"
+}
+
+log_success() {
+    echo -e "\033[0;32m[SUCCESS]\033[0m $1"
+}
+
+log_info "Starting Usufruit Library Management System..."
+
+# Load environment variables
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# Run database migrations
+log_info "Running database migrations..."
+docker-compose exec -T app npx prisma migrate deploy
+
+# Start all services
+log_info "Starting all services..."
+docker-compose up -d
+
+log_success "Usufruit is now running!"
+log_info "Visit https://$(grep NEXTAUTH_URL .env | cut -d'=' -f2 | sed 's|https://||') to access your library system"
+EOF
+
+    chmod +x start.sh
+    log_success "Startup script created!"
+}
+
+# Function to create update script
+create_update_script() {
+    log_info "Creating update script..."
+    
+    cat > update.sh << 'EOF'
+#!/bin/bash
+
+# Usufruit update script
+set -e
+
+log_info() {
+    echo -e "\033[0;34m[INFO]\033[0m $1"
+}
+
+log_success() {
+    echo -e "\033[0;32m[SUCCESS]\033[0m $1"
+}
+
+log_info "Updating Usufruit Library Management System..."
+
+# Pull latest changes
+git pull origin main
+
+# Rebuild and restart services
+log_info "Rebuilding application..."
+docker-compose build app
+
+log_info "Running database migrations..."
+docker-compose run --rm app npx prisma migrate deploy
+
+log_info "Restarting services..."
+docker-compose up -d
+
+log_success "Usufruit has been updated successfully!"
+EOF
+
+    chmod +x update.sh
+    log_success "Update script created!"
+}
+
+# Function to create monitoring script
+create_monitoring_script() {
+    log_info "Creating monitoring script..."
+    
+    cat > monitor.sh << 'EOF'
+#!/bin/bash
+
+# Usufruit monitoring script
+
+echo "=== Usufruit System Status ==="
+echo
+
+echo "Docker Services:"
+docker-compose ps
+
+echo
+echo "System Resources:"
+echo "Memory Usage:"
+free -h
+
+echo
+echo "Disk Usage:"
+df -h
+
+echo
+echo "Recent Logs (last 20 lines):"
+docker-compose logs --tail=20
+
+echo
+echo "SSL Certificate Status:"
+docker-compose exec nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)"
+EOF
+
+    chmod +x monitor.sh
+    log_success "Monitoring script created!"
+}
+
+# Function to setup firewall
+setup_firewall() {
+    log_info "Configuring firewall..."
+    
+    # Install ufw if not present
+    apt-get install -y ufw
+    
+    # Reset firewall rules
+    ufw --force reset
+    
+    # Set default policies
+    ufw default deny incoming
+    ufw default allow outgoing
+    
+    # Allow SSH
+    ufw allow ssh
+    
+    # Allow HTTP and HTTPS
+    ufw allow 80/tcp
+    ufw allow 443/tcp
+    
+    # Enable firewall
+    ufw --force enable
+    
+    log_success "Firewall configured!"
+}
+
+# Function to create backup script
+create_backup_script() {
+    log_info "Creating backup script..."
+    
+    mkdir -p backups
+    
+    cat > backup.sh << 'EOF'
+#!/bin/bash
+
+# Usufruit backup script
+set -e
+
+BACKUP_DIR="./backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="usufruit_backup_${DATE}.sql"
+
+log_info() {
+    echo -e "\033[0;34m[INFO]\033[0m $1"
+}
+
+log_success() {
+    echo -e "\033[0;32m[SUCCESS]\033[0m $1"
+}
+
+log_info "Creating database backup..."
+
+# Create database backup
+docker-compose exec -T postgres pg_dump -U usufruit usufruit > "${BACKUP_DIR}/${BACKUP_FILE}"
+
+# Compress backup
+gzip "${BACKUP_DIR}/${BACKUP_FILE}"
+
+# Keep only last 7 backups
+cd "${BACKUP_DIR}"
+ls -t usufruit_backup_*.sql.gz | tail -n +8 | xargs -r rm
+
+log_success "Backup created: ${BACKUP_FILE}.gz"
+log_info "Available backups:"
+ls -la usufruit_backup_*.sql.gz
+EOF
+
+    chmod +x backup.sh
+    
+    # Setup daily backups
+    cat > /etc/cron.d/usufruit-backup << EOF
+0 2 * * * cd $(pwd) && ./backup.sh
+EOF
+
+    log_success "Backup script created with daily automation!"
+}
+
+# Main deployment function
+main() {
+    log_info "Starting Usufruit deployment..."
+    
+    configure_deployment
+    check_prerequisites
+    install_docker
+    create_dockerfile
+    create_docker_compose
+    create_nginx_config
+    generate_secrets
+    create_startup_script
+    create_update_script
+    create_monitoring_script
+    create_backup_script
+    setup_firewall
+    
+    log_info "Building and starting services..."
+    docker-compose build
+    docker-compose up -d postgres
+    
+    # Wait for database to be ready
+    log_info "Waiting for database to be ready..."
+    sleep 10
+    
+    # Run migrations
+    docker-compose run --rm app npx prisma migrate deploy
+    
+    # Start all services
+    docker-compose up -d
+    
+    setup_ssl
+    
+    log_success "🎉 Usufruit deployment completed successfully!"
+    echo
+    log_info "Your library management system is now available at: https://${DOMAIN}"
+    log_info "Management commands:"
+    log_info "  ./start.sh     - Start the system"
+    log_info "  ./update.sh    - Update to latest version"
+    log_info "  ./backup.sh    - Create database backup"
+    log_info "  ./monitor.sh   - Check system status"
+    echo
+    log_warning "Don't forget to:"
+    log_warning "  1. Set up your first super librarian account"
+    log_warning "  2. Configure your library details"
+    log_warning "  3. Test the backup and restore process"
+}
+
+# Run main function
+main "$@"
