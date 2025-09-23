@@ -242,8 +242,9 @@ RUN echo "=== Project Structure ===" && \
     echo "=== Models Directory ===" && \
     ls -la models/
 
-# Generate Prisma client first
-RUN npx prisma generate
+# Switch to production schema and generate Prisma client
+RUN cp prisma/schema.production.prisma prisma/schema.prisma && \
+    npx prisma generate
 
 RUN echo "=== Building Next.js app ===" && \
     npx nx build usufruit --verbose
@@ -419,7 +420,7 @@ generate_secrets() {
     cat > .env << EOF
 DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-NEXTAUTH_URL=https://${DOMAIN}
+NEXTAUTH_URL=http://${DOMAIN}
 NODE_ENV=production
 EOF
 

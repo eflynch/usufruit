@@ -1,0 +1,83 @@
+// Production Prisma schema file for PostgreSQL
+// This is used during Docker builds and production deployment
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Librarian {
+  id          String @id @default(cuid())
+  name        String
+  contactInfo String
+  isSuper     Boolean @default(false)
+  secretKey   String? @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  libraryId   String
+  library     Library @relation(fields: [libraryId], references: [id])
+  books       Book[]
+  loans       Loan[]
+  
+  @@map("librarians")
+}
+
+model Book {
+  id                   String  @id @default(cuid())
+  title                String
+  author               String?
+  description          String?
+  borrowDurationDays   Int
+  organizingRules      String?
+  checkInInstructions  String?
+  checkOutInstructions String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  // Relations
+  libraryId            String
+  library              Library @relation(fields: [libraryId], references: [id])
+  librarianId          String
+  librarian            Librarian @relation(fields: [librarianId], references: [id])
+  loans                Loan[]
+  
+  @@map("books")
+}
+
+model Loan {
+  id          String    @id @default(cuid())
+  borrowedAt  DateTime  @default(now())
+  dueDate     DateTime?
+  returnedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  bookId      String
+  book        Book      @relation(fields: [bookId], references: [id])
+  librarianId String
+  librarian   Librarian @relation(fields: [librarianId], references: [id])
+  
+  @@map("loans")
+}
+
+model Library {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  location    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  librarians  Librarian[]
+  books       Book[]
+  
+  @@map("libraries")
+}

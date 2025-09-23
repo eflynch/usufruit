@@ -49,4 +49,14 @@ out
 
 test-output
 
+# Environment variables (contains secrets)
+.env
+.env.local
+.env.production
+.env.staging
+
+# Database files
+*.db
+*.db-journal
+
 /generated/prisma
