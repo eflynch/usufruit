@@ -55,7 +55,7 @@ test-output
 .env.production
 .env.staging
 
-# Database files
+# Database files (local development only)
 *.db
 *.db-journal
 

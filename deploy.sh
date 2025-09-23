@@ -242,9 +242,8 @@ RUN echo "=== Project Structure ===" && \
     echo "=== Models Directory ===" && \
     ls -la models/
 
-# Switch to production schema and generate Prisma client
-RUN cp prisma/schema.production.prisma prisma/schema.prisma && \
-    npx prisma generate
+# Generate Prisma client
+RUN npx prisma generate
 
 RUN echo "=== Building Next.js app ===" && \
     npx nx build usufruit --verbose
@@ -761,10 +760,22 @@ main() {
         sleep 2
     done
     
-    # Run migrations
-    if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy; then
-        log_error "Database migrations failed"
-        exit 1
+    # Run database migrations or create initial migration
+    log_info "Setting up database schema..."
+    
+    # Check if migrations directory exists
+    if ! $DOCKER_COMPOSE_CMD run --rm app test -d prisma/migrations; then
+        log_info "No migrations found, creating initial migration..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate dev --name init --skip-seed; then
+            log_error "Failed to create initial migration"
+            exit 1
+        fi
+    else
+        log_info "Running existing migrations..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy; then
+            log_error "Database migrations failed"
+            exit 1
+        fi
     fi
     
     # Start all services
