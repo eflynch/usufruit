@@ -1,0 +1,38 @@
+{
+  "name": "@usufruit/database",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "@usufruit/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "nx": {
+    "targets": {
+      "build": {
+        "executor": "@nx/esbuild:esbuild",
+        "outputs": [
+          "{options.outputPath}"
+        ],
+        "options": {
+          "outputPath": "database/dist",
+          "main": "database/src/index.ts",
+          "tsConfig": "database/tsconfig.lib.json",
+          "format": [
+            "esm"
+          ],
+          "declarationRootDir": "database/src"
+        }
+      }
+    }
+  },
+  "dependencies": {}
+}

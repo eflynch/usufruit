@@ -11,6 +11,9 @@
     },
     {
       "path": "./models"
+    },
+    {
+      "path": "./database"
     }
   ]
 }

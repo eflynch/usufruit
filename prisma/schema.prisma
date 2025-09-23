@@ -1,0 +1,80 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Librarian {
+  id          String @id @default(cuid())
+  name        String
+  contactInfo String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  libraryId   String
+  library     Library @relation(fields: [libraryId], references: [id])
+  books       Book[]
+  loans       Loan[]
+  
+  @@map("librarians")
+}
+
+model Book {
+  id                   String  @id @default(cuid())
+  title                String
+  author               String?
+  description          String?
+  organizingRules      String?
+  checkInInstructions  String?
+  checkOutInstructions String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  // Relations
+  libraryId            String
+  library              Library @relation(fields: [libraryId], references: [id])
+  librarianId          String
+  librarian            Librarian @relation(fields: [librarianId], references: [id])
+  loans                Loan[]
+  
+  @@map("books")
+}
+
+model Loan {
+  id          String    @id @default(cuid())
+  borrowedAt  DateTime  @default(now())
+  dueDate     DateTime?
+  returnedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  bookId      String
+  book        Book      @relation(fields: [bookId], references: [id])
+  librarianId String
+  librarian   Librarian @relation(fields: [librarianId], references: [id])
+  
+  @@map("loans")
+}
+
+model Library {
+  id          String @id @default(cuid())
+  name        String
+  description String?
+  location    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  // Relations
+  librarians  Librarian[]
+  books       Book[]
+  
+  @@map("libraries")
+}

@@ -1,12 +1,16 @@
 import styles from './page.module.css';
 import { Librarian } from '@usufruit/models';
+import Link from 'next/link';
 
 export default function Home() {
   // Test that our types are working
   const testLibrarian: Librarian = {
     id: '1',
     name: 'Test Librarian',
-    contactInfo: 'test@example.com'
+    contactInfo: 'test@example.com',
+    libraryId: 'lib-1',
+    createdAt: new Date(),
+    updatedAt: new Date()
   };
 
   return (
@@ -49,6 +53,9 @@ export default function Home() {
               
               <div style={{ marginTop: '2rem', fontSize: '0.9rem', opacity: 0.7 }}>
                 <p>Models library connected: {testLibrarian.name} ✅</p>
+                <Link href="/libraries" style={{ color: '#007bff', textDecoration: 'underline' }}>
+                  → Test Database Connection
+                </Link>
               </div>
             </div>
           </div>

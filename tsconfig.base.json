@@ -19,7 +19,8 @@
     "target": "es2022",
     "customConditions": ["@usufruit/source"],
     "paths": {
-      "@usufruit/models": ["models/src/index.ts"]
+      "@usufruit/models": ["models/src/index.ts"],
+      "@usufruit/database": ["database/src/index.ts"]
     }
   }
 }
