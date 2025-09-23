@@ -194,46 +194,81 @@ export default function LibraryPage() {
     </>
   );
 
-  const renderLibrariansTab = () => (
-    <>
-      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>librarians ({librarians.length})</h2>
-      {librarians.length === 0 ? (
-        <p style={{ margin: '0 0 15px 0', color: '#666' }}>no librarians found</p>
-      ) : (
-        <table style={{ width: '100%', marginBottom: '20px' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>name</th>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>contact</th>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>role</th>
-            </tr>
-          </thead>
-          <tbody>
-            {librarians.map((librarian) => (
-              <tr key={librarian.id}>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {librarian.name}
-                  {librarian.id === auth?.id && ' (you)'}
-                </td>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {librarian.contactInfo}
-                </td>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {librarian.isSuper ? 'super librarian' : 'librarian'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+  const renderLibrariansTab = () => {
+    const copyLoginLink = async (librarianKey: string, librarianName: string) => {
+      const baseUrl = window.location.origin;
+      const loginUrl = `${baseUrl}/libraries/${libraryId}/login/${librarianKey}`;
+      
+      try {
+        await navigator.clipboard.writeText(loginUrl);
+        alert(`Login link copied for ${librarianName}!\n\nYou can now share this link to let them log in directly.`);
+      } catch {
+        // Fallback for browsers that don't support clipboard API
+        prompt('Copy this login link:', loginUrl);
+      }
+    };
 
-      {auth?.isSuper && (
-        <p style={{ margin: '0 0 20px 0' }}>
-          <Link href={`/libraries/${libraryId}/librarians/new`} style={{ color: 'blue' }}>+ add a librarian</Link>
-        </p>
-      )}
-    </>
-  );
+    return (
+      <>
+        <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>librarians ({librarians.length})</h2>
+        {librarians.length === 0 ? (
+          <p style={{ margin: '0 0 15px 0', color: '#666' }}>no librarians found</p>
+        ) : (
+          <table style={{ width: '100%', marginBottom: '20px' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>name</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>contact</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>role</th>
+                {auth?.isSuper && (
+                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>actions</th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {librarians.map((librarian) => (
+                <tr key={librarian.id}>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {librarian.name}
+                    {librarian.id === auth?.id && ' (you)'}
+                  </td>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {librarian.contactInfo}
+                  </td>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {librarian.isSuper ? 'super librarian' : 'librarian'}
+                  </td>
+                  {auth?.isSuper && (
+                    <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                      <button
+                        onClick={() => copyLoginLink(librarian.secretKey, librarian.name)}
+                        style={{
+                          padding: '4px 8px',
+                          fontSize: '12px',
+                          border: '1px solid #999',
+                          backgroundColor: '#f7fafc',
+                          cursor: 'pointer',
+                          marginRight: '4px'
+                        }}
+                      >
+                        copy login link
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {auth?.isSuper && (
+          <p style={{ margin: '0 0 20px 0' }}>
+            <Link href={`/libraries/${libraryId}/librarians/new`} style={{ color: 'blue' }}>+ add a librarian</Link>
+          </p>
+        )}
+      </>
+    );
+  };
 
   const renderMyBorrowedTab = () => (
     <>
