@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import LibraryAuthStatus from '../../../../../components/LibraryAuthStatus';
+import { LibraryPageContainer, BackToLibraryLink, LibrarySectionDivider } from '../../../../../components/LibraryPageComponents';
 import { useLibraryAuth } from '../../../../../utils/auth-hooks';
 
 export default function NewLibrarianPage() {
@@ -75,70 +76,46 @@ export default function NewLibrarianPage() {
 
   if (!auth) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        lineHeight: '1.4',
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
-        <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add librarian</h1>
+      <LibraryPageContainer>
+        <h1>add librarian</h1>
         
-        <p style={{ margin: '0 0 20px 0' }}>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
+        <BackToLibraryLink libraryId={libraryId} />
 
         <LibraryAuthStatus libraryId={libraryId} />
         
         <p style={{ margin: '20px 0 0 0', color: '#666' }}>
           You need to be logged in as a super librarian to add librarians.
         </p>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   if (!auth.isSuper) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        lineHeight: '1.4',
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
-        <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add librarian</h1>
+      <LibraryPageContainer>
+        <h1>add librarian</h1>
         
-        <p style={{ margin: '0 0 20px 0' }}>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
+        <BackToLibraryLink libraryId={libraryId} />
 
         <LibraryAuthStatus libraryId={libraryId} />
         
         <p style={{ margin: '20px 0 0 0', color: '#666' }}>
           Only super librarians can add new librarians to this library.
         </p>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   if (success) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        lineHeight: '1.4',
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
-        <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>librarian added!</h1>
+      <LibraryPageContainer>
+        <h1>librarian added!</h1>
         
-        <p style={{ margin: '0 0 20px 0' }}>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
+        <BackToLibraryLink libraryId={libraryId} />
 
         <LibraryAuthStatus libraryId={libraryId} />
 
-        <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
+        <LibrarySectionDivider />
         
         <h2 style={{ fontSize: '18px', margin: '0 0 10px 0', color: 'red' }}>important: share this secret key</h2>
         <div style={{ 
@@ -166,30 +143,22 @@ export default function NewLibrarianPage() {
           <li><Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>view library</Link></li>
           <li><Link href={`/libraries/${libraryId}/librarians/new`} style={{ color: 'blue' }}>add another librarian</Link></li>
         </ul>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   return (
-    <div style={{ 
-      fontFamily: 'monospace', 
-      fontSize: '14px', 
-      lineHeight: '1.4',
-      margin: '20px',
-      maxWidth: '800px'
-    }}>
-      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add librarian</h1>
+    <LibraryPageContainer>
+      <h1>add librarian</h1>
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
         add a new librarian to this library
       </p>
       
-      <p style={{ margin: '0 0 20px 0' }}>
-        <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-      </p>
+      <BackToLibraryLink libraryId={libraryId} />
 
       <LibraryAuthStatus libraryId={libraryId} />
 
-      <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
+      <LibrarySectionDivider />
 
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '15px' }}>
@@ -276,6 +245,6 @@ export default function NewLibrarianPage() {
           {isSubmitting ? 'adding librarian...' : 'add librarian'}
         </button>
       </form>
-    </div>
+    </LibraryPageContainer>
   );
 }

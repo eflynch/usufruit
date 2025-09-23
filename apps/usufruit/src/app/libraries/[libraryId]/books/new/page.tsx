@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
 import LibraryAuthStatus from '../../../../../components/LibraryAuthStatus';
+import { LibraryPageContainer, BackToLibraryLink, LibrarySectionDivider } from '../../../../../components/LibraryPageComponents';
 import { useLibraryAuth } from '../../../../../utils/auth-hooks';
 
 export default function NewBookPage() {
@@ -75,48 +75,32 @@ export default function NewBookPage() {
 
   if (!auth) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        lineHeight: '1.4',
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
+      <LibraryPageContainer>
         <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add book</h1>
         
-        <p style={{ margin: '0 0 20px 0' }}>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
+        <BackToLibraryLink libraryId={libraryId} />
 
         <LibraryAuthStatus libraryId={libraryId} />
         
         <p style={{ margin: '20px 0 0 0', color: '#666' }}>
           You need to be logged in as a librarian to add books.
         </p>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   return (
-    <div style={{ 
-      fontFamily: 'monospace', 
-      fontSize: '14px', 
-      lineHeight: '1.4',
-      margin: '20px',
-      maxWidth: '800px'
-    }}>
+    <LibraryPageContainer>
       <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add book</h1>
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
         add a new book to the library collection
       </p>
       
-      <p style={{ margin: '0 0 20px 0' }}>
-        <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-      </p>
+      <BackToLibraryLink libraryId={libraryId} />
 
       <LibraryAuthStatus libraryId={libraryId} />
 
-      <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
+      <LibrarySectionDivider />
 
       <form onSubmit={handleSubmit}>
         <div style={{ marginBottom: '15px' }}>
@@ -303,6 +287,6 @@ export default function NewBookPage() {
           {isSubmitting ? 'adding book...' : 'add book'}
         </button>
       </form>
-    </div>
+    </LibraryPageContainer>
   );
 }

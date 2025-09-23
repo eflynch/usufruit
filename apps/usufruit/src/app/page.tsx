@@ -38,7 +38,21 @@ export default function Home() {
       margin: '20px',
       maxWidth: '800px'
     }}>
-      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>usufruit</h1>
+      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>
+        usufruit
+        <a 
+          href="https://en.wikipedia.org/wiki/Usufruct" 
+          target="_blank" 
+          rel="noopener noreferrer"
+          style={{ 
+            color: 'blue', 
+            textDecoration: 'none',
+            marginLeft: '2px'
+          }}
+        >
+          *
+        </a>
+      </h1>
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
         distributed library management for communities
       </p>
@@ -92,13 +106,22 @@ export default function Home() {
                           {new Date(library.lastAccessed).toLocaleDateString()}
                         </td>
                         <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                          {auth ? (
-                            <Link href={`/libraries/${library.id}`} style={{ color: 'blue', fontSize: '12px', marginRight: '8px' }}>
-                              view
-                            </Link>
-                          ) : (
-                            <Link href="/auth" style={{ color: 'blue', fontSize: '12px', marginRight: '8px' }}>
-                              log in
+                          {!auth && (
+                            <Link href="/auth" style={{ 
+                              fontSize: '12px', 
+                              marginRight: '8px',
+                              textDecoration: 'none'
+                            }}>
+                              <button style={{
+                                fontSize: '12px',
+                                padding: '2px 4px',
+                                border: '1px solid #999',
+                                background: '#e6f3ff',
+                                cursor: 'pointer',
+                                color: '#0066cc',
+                              }}>
+                                log in
+                              </button>
                             </Link>
                           )}
                           <button 
@@ -161,12 +184,6 @@ export default function Home() {
         <li><Link href="/libraries/new" style={{ color: 'blue' }}>create a new library</Link></li>
         <li><Link href="/auth" style={{ color: 'blue' }}>log in as librarian</Link></li>
       </ul>
-      
-      <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
-      
-      <p style={{ margin: '0', fontSize: '12px', color: '#999' }}>
-        questions? bugs? <a href="mailto:support@usufruit.org" style={{ color: 'blue' }}>email us</a>
-      </p>
     </div>
   );
 }

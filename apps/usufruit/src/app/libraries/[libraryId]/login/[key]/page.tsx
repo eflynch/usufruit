@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { LibraryPageContainer } from '../../../../../components/LibraryPageComponents';
 import { saveAuthenticatedLibrarian, type AuthenticatedLibrarian } from '../../../../../utils/auth';
 import { useLibraryAuth } from '../../../../../utils/auth-hooks';
 
@@ -85,14 +86,8 @@ export default function LibrarianLoginPage() {
   }, [libraryId, key, router, refreshAuth, isAuthenticated]);
 
   return (
-    <div style={{ 
-      fontFamily: 'monospace', 
-      fontSize: '14px', 
-      lineHeight: '1.4',
-      margin: '20px',
-      maxWidth: '600px'
-    }}>
-      <h1 style={{ fontSize: '24px', margin: '0 0 20px 0' }}>Librarian Login</h1>
+    <LibraryPageContainer>
+      <h1>Librarian Login</h1>
       
       {status === 'loading' && (
         <div>
@@ -127,6 +122,6 @@ export default function LibrarianLoginPage() {
           </p>
         </div>
       )}
-    </div>
+    </LibraryPageContainer>
   );
 }

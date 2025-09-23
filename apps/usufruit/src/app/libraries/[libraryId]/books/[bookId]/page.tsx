@@ -2,9 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
 import { Book, Loan } from '@usufruit/models';
 import LibraryAuthStatus from '../../../../../components/LibraryAuthStatus';
+import { LibraryPageContainer, BackToLibraryLink, LibrarySectionDivider } from '../../../../../components/LibraryPageComponents';
 import { useLibraryAuth } from '../../../../../utils/auth-hooks';
 
 export default function BookPage() {
@@ -147,58 +147,45 @@ export default function BookPage() {
     );
   }
 
+  if (loading) {
+    return (
+      <LibraryPageContainer>
+        <h1>loading...</h1>
+        <BackToLibraryLink libraryId={libraryId} />
+      </LibraryPageContainer>
+    );
+  }
+
   if (error) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
-        <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>error</h1>
+      <LibraryPageContainer>
+        <h1>error</h1>
         <p style={{ margin: '0 0 20px 0', color: 'red' }}>{error}</p>
-        <p>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
-      </div>
+        <BackToLibraryLink libraryId={libraryId} />
+      </LibraryPageContainer>
     );
   }
 
   if (!book) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
-        <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>book not found</h1>
-        <p>
-          <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-        </p>
-      </div>
+      <LibraryPageContainer>
+        <h1>book not found</h1>
+        <BackToLibraryLink libraryId={libraryId} />
+      </LibraryPageContainer>
     );
   }
 
   const currentLoan = loans.find(loan => !loan.returnedAt);
 
   return (
-    <div style={{ 
-      fontFamily: 'monospace', 
-      fontSize: '14px', 
-      lineHeight: '1.4',
-      margin: '20px',
-      maxWidth: '800px'
-    }}>
-      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>{book.title}</h1>
+    <LibraryPageContainer>
+      <h1>{book.title}</h1>
       
-      <p style={{ margin: '0 0 20px 0' }}>
-        <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
-      </p>
+      <BackToLibraryLink libraryId={libraryId} />
 
       <LibraryAuthStatus libraryId={libraryId} />
 
-      <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
+      <LibrarySectionDivider />
 
       {/* Book Status */}
       <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>availability</h2>
@@ -394,6 +381,6 @@ export default function BookPage() {
           </table>
         </>
       )}
-    </div>
+    </LibraryPageContainer>
   );
 }

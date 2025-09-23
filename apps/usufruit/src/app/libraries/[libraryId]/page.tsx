@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Library, Book, Librarian } from '@usufruit/models';
 import LibraryAuthStatus from '../../../components/LibraryAuthStatus';
+import { LibraryPageContainer, LibrarySectionDivider } from '../../../components/LibraryPageComponents';
 import { useLibraryAuth } from '../../../utils/auth-hooks';
 
 export default function LibraryPage() {
@@ -17,6 +18,7 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'books' | 'librarians' | 'my-borrowed' | 'my-books'>('books');
+  const [promotingLibrarianId, setPromotingLibrarianId] = useState<string | null>(null);
 
   const { auth, isAuthenticated, authHeaders } = useLibraryAuth(libraryId);
 
@@ -208,6 +210,97 @@ export default function LibraryPage() {
       }
     };
 
+    const promoteLibrarian = async (librarianId: string, librarianName: string) => {
+      if (!auth?.isSuper) {
+        alert('Only super librarians can promote other librarians.');
+        return;
+      }
+
+      const confirmed = confirm(`Are you sure you want to promote ${librarianName} to super librarian?\n\nThis will give them the ability to add/remove librarians and change library settings.`);
+      if (!confirmed) return;
+
+      setPromotingLibrarianId(librarianId);
+
+      try {
+        const response = await fetch(`/api/libraries/${libraryId}/librarians/${librarianId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            isSuper: true,
+          }),
+        });
+
+        if (response.ok) {
+          // Update the librarians list to reflect the change
+          setLibrarians(prev => prev.map(lib => 
+            lib.id === librarianId 
+              ? { ...lib, isSuper: true }
+              : lib
+          ));
+          alert(`${librarianName} has been promoted to super librarian!`);
+        } else {
+          const errorData = await response.json();
+          alert(`Failed to promote librarian: ${errorData.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('Error promoting librarian:', error);
+        alert('Failed to promote librarian. Please try again.');
+      } finally {
+        setPromotingLibrarianId(null);
+      }
+    };
+
+    const demoteLibrarian = async (librarianId: string, librarianName: string) => {
+      if (!auth?.isSuper) {
+        alert('Only super librarians can demote other librarians.');
+        return;
+      }
+
+      if (librarianId === auth.id) {
+        alert('You cannot demote yourself from super librarian status.');
+        return;
+      }
+
+      const confirmed = confirm(`Are you sure you want to demote ${librarianName} from super librarian?\n\nThis will remove their ability to add/remove librarians and change library settings.`);
+      if (!confirmed) return;
+
+      setPromotingLibrarianId(librarianId);
+
+      try {
+        const response = await fetch(`/api/libraries/${libraryId}/librarians/${librarianId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            isSuper: false,
+          }),
+        });
+
+        if (response.ok) {
+          // Update the librarians list to reflect the change
+          setLibrarians(prev => prev.map(lib => 
+            lib.id === librarianId 
+              ? { ...lib, isSuper: false }
+              : lib
+          ));
+          alert(`${librarianName} has been demoted from super librarian.`);
+        } else {
+          const errorData = await response.json();
+          alert(`Failed to demote librarian: ${errorData.error || 'Unknown error'}`);
+        }
+      } catch (error) {
+        console.error('Error demoting librarian:', error);
+        alert('Failed to demote librarian. Please try again.');
+      } finally {
+        setPromotingLibrarianId(null);
+      }
+    };
+
     return (
       <>
         <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>librarians ({librarians.length})</h2>
@@ -253,6 +346,38 @@ export default function LibraryPage() {
                       >
                         copy login link
                       </button>
+                      {!librarian.isSuper && (
+                        <button
+                          onClick={() => promoteLibrarian(librarian.id, librarian.name)}
+                          disabled={promotingLibrarianId === librarian.id}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            border: '1px solid #999',
+                            backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fff3cd',
+                            cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
+                            marginRight: '4px'
+                          }}
+                        >
+                          {promotingLibrarianId === librarian.id ? 'promoting...' : 'promote to super'}
+                        </button>
+                      )}
+                      {librarian.isSuper && librarian.id !== auth?.id && (
+                        <button
+                          onClick={() => demoteLibrarian(librarian.id, librarian.name)}
+                          disabled={promotingLibrarianId === librarian.id}
+                          style={{
+                            padding: '4px 8px',
+                            fontSize: '12px',
+                            border: '1px solid #999',
+                            backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fee2e2',
+                            cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
+                            marginRight: '4px'
+                          }}
+                        >
+                          {promotingLibrarianId === librarian.id ? 'demoting...' : 'remove super'}
+                        </button>
+                      )}
                     </td>
                   )}
                 </tr>
@@ -414,58 +539,37 @@ export default function LibraryPage() {
 
   if (loading) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
+      <LibraryPageContainer>
         loading library...
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   if (error) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
+      <LibraryPageContainer>
         <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>error</h1>
         <p style={{ margin: '0 0 20px 0', color: 'red' }}>{error}</p>
         <p>
           <Link href="/" style={{ color: 'blue' }}>&larr; back to home</Link>
         </p>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   if (!library) {
     return (
-      <div style={{ 
-        fontFamily: 'monospace', 
-        fontSize: '14px', 
-        margin: '20px',
-        maxWidth: '800px'
-      }}>
+      <LibraryPageContainer>
         <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>library not found</h1>
         <p>
           <Link href="/" style={{ color: 'blue' }}>&larr; back to home</Link>
         </p>
-      </div>
+      </LibraryPageContainer>
     );
   }
 
   return (
-    <div style={{ 
-      fontFamily: 'monospace', 
-      fontSize: '14px', 
-      lineHeight: '1.4',
-      margin: '20px',
-      maxWidth: '800px'
-    }}>
+    <LibraryPageContainer>
       <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>{library.name}</h1>
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
         {library.description || 'no description'}
@@ -496,6 +600,9 @@ export default function LibraryPage() {
       <LibraryAuthStatus libraryId={libraryId} libraryName={library.name} />
 
       {/* Library info section */}
+      <LibrarySectionDivider />
+      
+      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>library info</h2>
       <table style={{ width: '100%', marginBottom: '20px' }}>
         <tbody>
           <tr>
@@ -519,7 +626,7 @@ export default function LibraryPage() {
         </tbody>
       </table>
 
-      <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
+      <LibrarySectionDivider />
 
       {/* Tab Navigation */}
       {renderTabButtons()}
@@ -527,6 +634,6 @@ export default function LibraryPage() {
       {/* Tab Content */}
       {renderActiveTab()}
 
-    </div>
+    </LibraryPageContainer>
   );
 }
