@@ -265,7 +265,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 
 # Copy Prisma client (needed for database operations)
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder --chown=nextjs:nodejs /app/database/prisma ./prisma
+COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
 USER nextjs
 
