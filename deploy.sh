@@ -264,15 +264,6 @@ RUN echo "=== Project Structure ===" && \
 # Generate Prisma client first
 RUN npx prisma generate
 
-# Build all dependencies using NX (handles dependency order)
-RUN echo "=== Building dependencies ===" && \
-    npx nx run-many --target=build --projects=@usufruit/database,@usufruit/models --parallel=false
-
-# Debug: Check if dependencies were built
-RUN echo "=== Checking built dependencies ===" && \
-    ls -la dist/ 2>/dev/null || echo "No dist directory found"
-
-# Build the Next.js application with dependencies available
 RUN echo "=== Building Next.js app ===" && \
     npx nx build usufruit --verbose
 
@@ -285,22 +276,15 @@ WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built application (NX builds in the app directory)
-COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./apps/usufruit/.next
-COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/package.json ./apps/usufruit/package.json
-
-# Copy public directory if it exists
-COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/public ./apps/usufruit/public 2>/dev/null || true
-
-# Copy built dependencies (may be in dist or directly compiled)
-COPY --from=builder --chown=nextjs:nodejs /app/dist ./dist 2>/dev/null || true
-
-# Copy node_modules (needed for runtime)
+# Copy only what we need for production
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./.next
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/public ./public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/package.json ./package.json
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
-COPY --from=builder --chown=nextjs:nodejs /app/package.json ./package.json
 
-# Copy Prisma files and generated client
-COPY --from=builder --chown=nextjs:nodejs /app/database ./database
+# Copy Prisma client (needed for database operations)
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder --chown=nextjs:nodejs /app/database/prisma ./prisma
 
 USER nextjs
 
