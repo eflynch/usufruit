@@ -25,7 +25,7 @@ ssh your-username@your-server-ip
 ### 2. Clone and Deploy
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/usufruit.git
+git clone https://github.com/eflynch/usufruit.git
 cd usufruit
 
 # Run the automated deployment
