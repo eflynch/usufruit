@@ -8,6 +8,8 @@ export async function GET(
   try {
     const { libraryId } = params;
     
+    // No authorization required - any librarian can view all books
+    
     // Verify library exists first
     const library = await DatabaseService.getLibraryById(libraryId);
     if (!library) {
@@ -48,6 +50,33 @@ export async function POST(
       return NextResponse.json(
         { error: 'Librarian ID is required' },
         { status: 400 }
+      );
+    }
+
+    // Require authorization for creating books
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authorization required to create books' },
+        { status: 401 }
+      );
+    }
+
+    const secretKey = authHeader.substring(7);
+    const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+    
+    if (!authenticatedLibrarian || authenticatedLibrarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Invalid authorization' },
+        { status: 403 }
+      );
+    }
+
+    // Only super librarians or the specified librarian can create books
+    if (!authenticatedLibrarian.isSuper && authenticatedLibrarian.id !== librarianId) {
+      return NextResponse.json(
+        { error: 'You can only create books for yourself, or be a super librarian' },
+        { status: 403 }
       );
     }
 

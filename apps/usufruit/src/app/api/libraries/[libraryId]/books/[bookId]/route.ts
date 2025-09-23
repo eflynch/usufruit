@@ -8,6 +8,8 @@ export async function GET(
   try {
     const { libraryId, bookId } = params;
     
+    // No authorization required - any librarian can view any book
+    
     const book = await DatabaseService.getBookById(bookId);
     
     if (!book) {
@@ -43,6 +45,25 @@ export async function PUT(
     const { libraryId, bookId } = params;
     const body = await request.json();
     
+    // Require authorization for modifying books
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authorization required to modify books' },
+        { status: 401 }
+      );
+    }
+
+    const secretKey = authHeader.substring(7);
+    const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+    
+    if (!authenticatedLibrarian || authenticatedLibrarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Invalid authorization' },
+        { status: 403 }
+      );
+    }
+    
     const book = await DatabaseService.getBookById(bookId);
     
     if (!book) {
@@ -57,6 +78,14 @@ export async function PUT(
       return NextResponse.json(
         { error: 'Book not found in this library' },
         { status: 404 }
+      );
+    }
+
+    // Only super librarians or the book owner can modify books
+    if (!authenticatedLibrarian.isSuper && authenticatedLibrarian.id !== book.librarianId) {
+      return NextResponse.json(
+        { error: 'You can only modify your own books, or be a super librarian' },
+        { status: 403 }
       );
     }
 
