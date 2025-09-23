@@ -1,0 +1,96 @@
+import { DatabaseService } from '@usufruit/database';
+import { NextRequest, NextResponse } from 'next/server';
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { libraryId: string; bookId: string } }
+) {
+  try {
+    const { libraryId, bookId } = params;
+    
+    const book = await DatabaseService.getBookById(bookId);
+    
+    if (!book) {
+      return NextResponse.json(
+        { error: 'Book not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify book belongs to this library
+    if (book.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Book not found in this library' },
+        { status: 404 }
+      );
+    }
+
+    const loans = await DatabaseService.getLoansByBookId(bookId);
+    return NextResponse.json(loans);
+  } catch (error) {
+    console.error('Error fetching loans:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch loans' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { libraryId: string; bookId: string } }
+) {
+  try {
+    const { libraryId, bookId } = params;
+    const body = await request.json();
+    const { librarianId, dueDate } = body;
+
+    if (!librarianId) {
+      return NextResponse.json(
+        { error: 'Librarian ID is required' },
+        { status: 400 }
+      );
+    }
+
+    // Verify book exists and belongs to this library
+    const book = await DatabaseService.getBookById(bookId);
+    if (!book || book.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Book not found in this library' },
+        { status: 404 }
+      );
+    }
+
+    // Verify librarian belongs to this library
+    const librarian = await DatabaseService.getLibrarianById(librarianId);
+    if (!librarian || librarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Librarian not found in this library' },
+        { status: 404 }
+      );
+    }
+
+    // Check if book is already on loan
+    const activeLoans = await DatabaseService.getActiveLoansByBookId(bookId);
+    if (activeLoans.length > 0) {
+      return NextResponse.json(
+        { error: 'Book is already on loan' },
+        { status: 400 }
+      );
+    }
+
+    const loan = await DatabaseService.createLoan({
+      bookId,
+      librarianId,
+      dueDate: dueDate ? new Date(dueDate) : undefined,
+    });
+
+    return NextResponse.json(loan, { status: 201 });
+  } catch (error) {
+    console.error('Error creating loan:', error);
+    return NextResponse.json(
+      { error: 'Failed to create loan' },
+      { status: 500 }
+    );
+  }
+}

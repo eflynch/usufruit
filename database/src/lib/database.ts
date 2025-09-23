@@ -29,8 +29,9 @@ export class DatabaseService {
     });
   }
 
-  static async getLibraries() {
-    return prisma.library.findMany({
+  static async getLibraryById(id: string) {
+    return prisma.library.findUnique({
+      where: { id },
       include: {
         librarians: true,
         books: true,
@@ -38,9 +39,14 @@ export class DatabaseService {
     });
   }
 
-  static async getLibraryById(id: string) {
-    return prisma.library.findUnique({
+  static async updateLibrary(id: string, data: {
+    name?: string;
+    description?: string;
+    location?: string;
+  }) {
+    return prisma.library.update({
       where: { id },
+      data,
       include: {
         librarians: true,
         books: true,
@@ -72,6 +78,26 @@ export class DatabaseService {
     });
   }
 
+  static async getLibrarianById(id: string) {
+    return prisma.librarian.findUnique({
+      where: { id },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+  }
+
+  static async getLibrariansByLibraryId(libraryId: string) {
+    return prisma.librarian.findMany({
+      where: { libraryId },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+  }
+
   // Book operations
   static async createBook(data: {
     title: string;
@@ -79,6 +105,7 @@ export class DatabaseService {
     description?: string;
     organizingRules?: string;
     checkInInstructions?: string;
+    checkOutInstructions?: string;
     libraryId: string;
     librarianId: string;
   }) {
@@ -109,6 +136,40 @@ export class DatabaseService {
   static async getBookById(id: string) {
     return prisma.book.findUnique({
       where: { id },
+      include: {
+        library: true,
+        librarian: true,
+        loans: true,
+      },
+    });
+  }
+
+  static async getBooksByLibraryId(libraryId: string) {
+    return prisma.book.findMany({
+      where: { libraryId },
+      include: {
+        library: true,
+        librarian: true,
+        loans: {
+          where: {
+            returnedAt: null, // Only active loans
+          },
+        },
+      },
+    });
+  }
+
+  static async updateBook(id: string, data: {
+    title?: string;
+    author?: string;
+    description?: string;
+    organizingRules?: string;
+    checkInInstructions?: string;
+    checkOutInstructions?: string;
+  }) {
+    return prisma.book.update({
+      where: { id },
+      data,
       include: {
         library: true,
         librarian: true,
@@ -165,6 +226,32 @@ export class DatabaseService {
       },
       orderBy: {
         borrowedAt: 'desc',
+      },
+    });
+  }
+
+  static async getLoansByBookId(bookId: string) {
+    return prisma.loan.findMany({
+      where: { bookId },
+      include: {
+        book: true,
+        librarian: true,
+      },
+      orderBy: {
+        borrowedAt: 'desc',
+      },
+    });
+  }
+
+  static async getActiveLoansByBookId(bookId: string) {
+    return prisma.loan.findMany({
+      where: { 
+        bookId,
+        returnedAt: null,
+      },
+      include: {
+        book: true,
+        librarian: true,
       },
     });
   }

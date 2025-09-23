@@ -9,6 +9,7 @@
   color: #333;
 }
 
+.accessForm,
 .createForm {
   background: #f8f9fa;
   padding: 2rem;
@@ -17,6 +18,7 @@
   border: 1px solid #e9ecef;
 }
 
+.accessForm h2,
 .createForm h2 {
   margin-top: 0;
   margin-bottom: 1.5rem;
@@ -61,8 +63,102 @@
   transition: background-color 0.2s;
 }
 
-.submitButton:hover {
+.submitButton:hover:not(:disabled) {
   background: #0056b3;
+}
+
+.submitButton:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+}
+
+.error {
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 2rem;
+}
+
+.libraryDetails {
+  background: white;
+  border: 1px solid #e9ecef;
+  border-radius: 8px;
+  padding: 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.libraryDetails h2 {
+  margin-top: 0;
+  color: #495057;
+}
+
+.description {
+  color: #6c757d;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.location {
+  color: #007bff;
+  margin-bottom: 1.5rem;
+  font-weight: 500;
+}
+
+.libraryStats {
+  display: flex;
+  gap: 2rem;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 4px;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat h4 {
+  margin: 0 0 0.5rem 0;
+  color: #495057;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat p {
+  margin: 0;
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #007bff;
+}
+
+.actions {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.actionButton {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 0.75rem 1rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.actionButton:hover {
+  background: #218838;
+}
+
+.metadata {
+  border-top: 1px solid #e9ecef;
+  padding-top: 1rem;
+  color: #6c757d;
 }
 
 .librariesList h2 {
@@ -93,22 +189,4 @@
   margin-top: 0;
   margin-bottom: 1rem;
   color: #495057;
-}
-
-.description {
-  color: #6c757d;
-  margin-bottom: 1rem;
-  line-height: 1.5;
-}
-
-.location {
-  color: #007bff;
-  margin-bottom: 1rem;
-  font-weight: 500;
-}
-
-.metadata {
-  border-top: 1px solid #e9ecef;
-  padding-top: 1rem;
-  color: #6c757d;
 }
