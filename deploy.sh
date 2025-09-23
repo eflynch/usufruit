@@ -1,13 +1,12 @@
 #!/bin/bash
 
 # Usufruit Library Management System - Deployment Script
-# This script sets up the complete production environment with Docker, Nginx, and SSL
+# This script sets up the production environment with Docker and Nginx
 
 set -e  # Exit on any error
 
 # Configuration
 DOMAIN=""
-EMAIL=""
 PROJECT_NAME="usufruit"
 DB_PASSWORD=""
 NODE_ENV="production"
@@ -57,10 +56,6 @@ configure_deployment() {
     
     if [ -z "$DOMAIN" ]; then
         read -p "Enter your domain name (e.g., library.yourdomain.com): " DOMAIN
-    fi
-    
-    if [ -z "$EMAIL" ]; then
-        read -p "Enter your email for SSL certificates: " EMAIL
     fi
     
     if [ -z "$DB_PASSWORD" ]; then
@@ -178,7 +173,7 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
       - NEXTAUTH_SECRET=\${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=https://${DOMAIN}
+      - NEXTAUTH_URL=http://${DOMAIN}
     depends_on:
       - postgres
     networks:
@@ -191,30 +186,16 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/lib/letsencrypt
     depends_on:
       - app
     networks:
       - app-network
     restart: unless-stopped
 
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - certbot-etc:/etc/letsencrypt
-      - certbot-var:/var/lib/letsencrypt
-      - ./certbot-webroot:/var/www/certbot
-    command: certonly --webroot --webroot-path=/var/www/certbot --email ${EMAIL} --agree-tos --no-eff-email -d ${DOMAIN}
-
 volumes:
   postgres_data:
-  certbot-etc:
-  certbot-var:
 
 networks:
   app-network:
@@ -374,38 +355,11 @@ http {
     # Rate limiting
     limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
 
-    # Redirect HTTP to HTTPS
+    # HTTP server
     server {
         listen 80;
         server_name ${DOMAIN};
         
-        location /.well-known/acme-challenge/ {
-            root /var/www/certbot;
-        }
-        
-        location / {
-            return 301 https://\$server_name\$request_uri;
-        }
-    }
-
-    # HTTPS server
-    server {
-        listen 443 ssl http2;
-        server_name ${DOMAIN};
-
-        # SSL configuration
-        ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384;
-        ssl_prefer_server_ciphers off;
-
-        # Security headers
-        add_header X-Frame-Options DENY;
-        add_header X-Content-Type-Options nosniff;
-        add_header X-XSS-Protection "1; mode=block";
-        add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
-
         # Gzip compression
         gzip on;
         gzip_vary on;
@@ -414,7 +368,7 @@ http {
 
         # Client max body size (for file uploads)
         client_max_body_size 10M;
-
+        
         location / {
             proxy_pass http://app;
             proxy_http_version 1.1;
@@ -473,67 +427,6 @@ EOF
     log_success "Secrets generated and stored in .env file!"
 }
 
-# Function to setup SSL certificates
-setup_ssl() {
-    log_info "Setting up SSL certificates..."
-    
-    # Create webroot directory for certbot
-    mkdir -p certbot-webroot
-    
-    # First, start nginx without SSL to handle the ACME challenge
-    $DOCKER_COMPOSE_CMD up -d nginx
-    
-    # Check if SSL certificate already exists
-    if $DOCKER_COMPOSE_CMD exec nginx test -f /etc/letsencrypt/live/${DOMAIN}/fullchain.pem 2>/dev/null; then
-        log_info "SSL certificate already exists for ${DOMAIN}, skipping certificate generation..."
-    else
-        log_info "Generating SSL certificate for ${DOMAIN}..."
-        # Get SSL certificate
-        $DOCKER_COMPOSE_CMD run --rm certbot
-    fi
-    
-    # Restart nginx with SSL
-    $DOCKER_COMPOSE_CMD restart nginx
-    
-    # Create SSL renewal script
-    if [ -f ssl-renew.sh ]; then
-        log_info "ssl-renew.sh already exists, backing up and recreating..."
-        cp ssl-renew.sh ssl-renew.sh.backup.$(date +%s)
-    fi
-    
-    cat > ssl-renew.sh << 'EOF'
-#!/bin/bash
-# SSL certificate renewal script
-
-# Detect Docker Compose command
-if command -v docker-compose >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker-compose"
-elif docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-else
-    echo "Error: Neither 'docker-compose' nor 'docker compose' is available"
-    exit 1
-fi
-
-cd "$(dirname "$0")"
-$DOCKER_COMPOSE run --rm certbot renew --quiet && $DOCKER_COMPOSE restart nginx
-EOF
-
-    chmod +x ssl-renew.sh
-    
-    # Set up auto-renewal (only if not already exists)
-    if [ ! -f /etc/cron.d/certbot-renew ]; then
-        cat > /etc/cron.d/certbot-renew << EOF
-0 12 * * * cd $(pwd) && ./ssl-renew.sh
-EOF
-        log_info "SSL auto-renewal cron job created"
-    else
-        log_info "SSL auto-renewal cron job already exists, skipping..."
-    fi
-
-    log_success "SSL certificates set up with auto-renewal!"
-}
-
 # Function to create startup script
 create_startup_script() {
     log_info "Creating startup script..."
@@ -583,7 +476,7 @@ log_info "Starting all services..."
 $DOCKER_COMPOSE up -d
 
 log_success "Usufruit is now running!"
-log_info "Visit https://$(grep NEXTAUTH_URL .env | cut -d'=' -f2 | sed 's|https://||') to access your library system"
+log_info "Visit http://$(grep NEXTAUTH_URL .env | cut -d'=' -f2 | sed 's|http://||') to access your library system"
 EOF
 
     chmod +x start.sh
@@ -879,11 +772,9 @@ main() {
         exit 1
     fi
     
-    setup_ssl
-    
     log_success "🎉 Usufruit deployment completed successfully!"
     echo
-    log_info "Your library management system is now available at: https://${DOMAIN}"
+    log_info "Your library management system is now available at: http://${DOMAIN}"
     log_info "Management commands:"
     log_info "  ./start.sh     - Start the system"
     log_info "  ./update.sh    - Update to latest version"
