@@ -14,6 +14,7 @@ export default function NewBookPage() {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [description, setDescription] = useState('');
+  const [borrowDurationDays, setBorrowDurationDays] = useState(14);
   const [organizingRules, setOrganizingRules] = useState('');
   const [checkInInstructions, setCheckInInstructions] = useState('');
   const [checkOutInstructions, setCheckOutInstructions] = useState('');
@@ -48,6 +49,7 @@ export default function NewBookPage() {
           title: title.trim(),
           author: author.trim() || undefined,
           description: description.trim() || undefined,
+          borrowDurationDays,
           organizingRules: organizingRules.trim() || undefined,
           checkInInstructions: checkInInstructions.trim() || undefined,
           checkOutInstructions: checkOutInstructions.trim() || undefined,
@@ -159,6 +161,31 @@ export default function NewBookPage() {
             }}
             disabled={isSubmitting}
           />
+        </div>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px' }}>
+            borrow duration (days) *
+          </label>
+          <input
+            type="number"
+            value={borrowDurationDays}
+            onChange={(e) => setBorrowDurationDays(parseInt(e.target.value) || 1)}
+            min="1"
+            max="365"
+            style={{
+              width: '100px',
+              padding: '4px 6px',
+              border: '1px solid #999',
+              fontFamily: 'inherit',
+              fontSize: 'inherit',
+            }}
+            disabled={isSubmitting}
+            required
+          />
+          <p style={{ margin: '5px 0 0 0', color: '#666', fontSize: '12px' }}>
+            how many days can this item be borrowed? (default: 14 days)
+          </p>
         </div>
 
         <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />

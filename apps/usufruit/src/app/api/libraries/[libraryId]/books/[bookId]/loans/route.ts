@@ -45,7 +45,7 @@ export async function POST(
   try {
     const { libraryId, bookId } = await params;
     const body = await request.json();
-    const { librarianId, dueDate } = body;
+    const { librarianId } = body;
 
     // No authorization required - any librarian can borrow books
 
@@ -83,10 +83,14 @@ export async function POST(
       );
     }
 
+    // Calculate due date based on book's borrow duration
+    const dueDate = new Date();
+    dueDate.setDate(dueDate.getDate() + book.borrowDurationDays);
+
     const loan = await DatabaseService.createLoan({
       bookId,
       librarianId,
-      dueDate: dueDate ? new Date(dueDate) : undefined,
+      dueDate,
     });
 
     return NextResponse.json(loan, { status: 201 });

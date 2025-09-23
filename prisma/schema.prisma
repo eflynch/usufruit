@@ -33,6 +33,7 @@ model Book {
   title                String
   author               String?
   description          String?
+  borrowDurationDays   Int
   organizingRules      String?
   checkInInstructions  String?
   checkOutInstructions String?

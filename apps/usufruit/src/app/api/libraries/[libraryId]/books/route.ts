@@ -37,11 +37,18 @@ export async function POST(
   try {
     const { libraryId } = await params;
     const body = await request.json();
-    const { title, author, description, organizingRules, checkInInstructions, checkOutInstructions, librarianId } = body;
+    const { title, author, description, borrowDurationDays, organizingRules, checkInInstructions, checkOutInstructions, librarianId } = body;
 
     if (!title) {
       return NextResponse.json(
         { error: 'Title is required' },
+        { status: 400 }
+      );
+    }
+
+    if (!borrowDurationDays || borrowDurationDays < 1) {
+      return NextResponse.json(
+        { error: 'Borrow duration must be at least 1 day' },
         { status: 400 }
       );
     }
@@ -102,6 +109,7 @@ export async function POST(
       title,
       author,
       description,
+      borrowDurationDays,
       organizingRules,
       checkInInstructions,
       checkOutInstructions,

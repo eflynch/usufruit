@@ -214,6 +214,7 @@ export class DatabaseService {
     title: string;
     author?: string;
     description?: string;
+    borrowDurationDays: number;
     organizingRules?: string;
     checkInInstructions?: string;
     checkOutInstructions?: string;

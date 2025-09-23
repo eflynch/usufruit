@@ -49,13 +49,7 @@ export default function LibraryAuthStatus({ libraryId, libraryName }: LibraryAut
         logged in as {auth.name}
         {auth.isSuper && ' (super librarian)'}
       </p>
-      <p style={{ margin: '0 0 10px 0', fontSize: '12px', color: '#666' }}>
-        library: {libraryName || auth.library.name}
-      </p>
       <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-        <Link href="/" style={{ color: 'blue', fontSize: '12px' }}>
-          my libraries
-        </Link>
         <button
           onClick={handleLogout}
           style={{

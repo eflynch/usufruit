@@ -16,6 +16,10 @@ export default function BookPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isBorrowing, setIsBorrowing] = useState(false);
+  const [borrowMessage, setBorrowMessage] = useState<string | null>(null);
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnMessage, setReturnMessage] = useState<string | null>(null);
 
   const { auth, isAuthenticated, authHeaders } = useLibraryAuth(libraryId);
 
@@ -57,6 +61,78 @@ export default function BookPage() {
 
     fetchBookData();
   }, [libraryId, bookId, isAuthenticated, authHeaders]);
+
+  const handleBorrow = async () => {
+    if (!auth || !book) return;
+
+    setIsBorrowing(true);
+    setBorrowMessage(null);
+
+    try {
+      const response = await fetch(`/api/libraries/${libraryId}/books/${bookId}/loans`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          librarianId: auth.id,
+        }),
+      });
+
+      if (response.ok) {
+        setBorrowMessage('Successfully borrowed! Refreshing...');
+        // Refresh the book data to show updated loan status
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        const errorData = await response.json();
+        setBorrowMessage(`Error: ${errorData.error || 'Failed to borrow item'}`);
+      }
+    } catch {
+      setBorrowMessage('Error: Failed to borrow item');
+    } finally {
+      setIsBorrowing(false);
+    }
+  };
+
+  const handleReturn = async () => {
+    if (!auth || !book || !currentLoan) return;
+
+    setIsReturning(true);
+    setReturnMessage(null);
+
+    try {
+      const response = await fetch(`/api/libraries/${libraryId}/books/${bookId}/loans`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          action: 'return',
+          loanId: currentLoan.id,
+          librarianId: auth.id,
+        }),
+      });
+
+      if (response.ok) {
+        setReturnMessage('Successfully returned! Refreshing...');
+        // Refresh the book data to show updated loan status
+        setTimeout(() => {
+          window.location.reload();
+        }, 1500);
+      } else {
+        const errorData = await response.json();
+        setReturnMessage(`Error: ${errorData.error || 'Failed to return item'}`);
+      }
+    } catch {
+      setReturnMessage('Error: Failed to return item');
+    } finally {
+      setIsReturning(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -133,18 +209,78 @@ export default function BookPage() {
         margin: '0 0 20px 0' 
       }}>
         {currentLoan ? (
-          <p style={{ margin: '0', fontWeight: 'bold' }}>
-            currently checked out
-            {currentLoan.dueDate && (
-              <span style={{ fontWeight: 'normal' }}>
-                {' '}(due {new Date(currentLoan.dueDate).toLocaleDateString()})
-              </span>
+          <>
+            <p style={{ margin: '0 0 10px 0', fontWeight: 'bold' }}>
+              currently checked out
+              {currentLoan.dueDate && (
+                <span style={{ fontWeight: 'normal' }}>
+                  {' '}(due {new Date(currentLoan.dueDate).toLocaleDateString()})
+                </span>
+              )}
+            </p>
+            {isAuthenticated && (
+              <div>
+                <button
+                  onClick={handleReturn}
+                  disabled={isReturning}
+                  style={{
+                    padding: '8px 16px',
+                    background: isReturning ? '#ccc' : '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    cursor: isReturning ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    marginRight: '10px',
+                  }}
+                >
+                  {isReturning ? 'returning...' : 'return this item'}
+                </button>
+                {returnMessage && (
+                  <span style={{ 
+                    color: returnMessage.includes('Error') ? 'red' : 'green',
+                    fontSize: '12px'
+                  }}>
+                    {returnMessage}
+                  </span>
+                )}
+              </div>
             )}
-          </p>
+          </>
         ) : (
-          <p style={{ margin: '0', fontWeight: 'bold', color: 'green' }}>
-            available for checkout
-          </p>
+          <>
+            <p style={{ margin: '0 0 10px 0', fontWeight: 'bold', color: 'green' }}>
+              available for checkout
+            </p>
+            {isAuthenticated && (
+              <div>
+                <button
+                  onClick={handleBorrow}
+                  disabled={isBorrowing}
+                  style={{
+                    padding: '8px 16px',
+                    background: isBorrowing ? '#ccc' : '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    cursor: isBorrowing ? 'not-allowed' : 'pointer',
+                    fontSize: '14px',
+                    fontFamily: 'inherit',
+                    marginRight: '10px',
+                  }}
+                >
+                  {isBorrowing ? 'borrowing...' : 'borrow this item'}
+                </button>
+                {borrowMessage && (
+                  <span style={{ 
+                    color: borrowMessage.includes('Error') ? 'red' : 'green',
+                    fontSize: '12px'
+                  }}>
+                    {borrowMessage}
+                  </span>
+                )}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -168,6 +304,12 @@ export default function BookPage() {
               <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.author}</td>
             </tr>
           )}
+          <tr>
+            <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>borrow duration</td>
+            <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+              {book.borrowDurationDays} day{book.borrowDurationDays !== 1 ? 's' : ''}
+            </td>
+          </tr>
           <tr>
             <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>added</td>
             <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
