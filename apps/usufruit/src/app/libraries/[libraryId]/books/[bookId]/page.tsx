@@ -115,11 +115,6 @@ export default function BookPage() {
       maxWidth: '800px'
     }}>
       <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>{book.title}</h1>
-      {book.author && (
-        <p style={{ margin: '0 0 20px 0', color: '#666', fontSize: '16px' }}>
-          by {book.author}
-        </p>
-      )}
       
       <p style={{ margin: '0 0 20px 0' }}>
         <Link href={`/libraries/${libraryId}`} style={{ color: 'blue' }}>&larr; back to library</Link>
@@ -161,14 +156,16 @@ export default function BookPage() {
             <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>title</td>
             <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.title}</td>
           </tr>
-          <tr>
-            <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>author</td>
-            <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.author || '—'}</td>
-          </tr>
           {book.description && (
             <tr>
               <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>description</td>
               <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.description}</td>
+            </tr>
+          )}
+          {book.author && (
+            <tr>
+              <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>author</td>
+              <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.author}</td>
             </tr>
           )}
           <tr>
@@ -181,33 +178,40 @@ export default function BookPage() {
       </table>
 
       {/* Instructions */}
-      {(book.organizingRules || book.checkInInstructions || book.checkOutInstructions) && (
-        <>
-          <h2 style={{ fontSize: '18px', margin: '20px 0 10px 0' }}>instructions</h2>
-          <table style={{ width: '100%', marginBottom: '20px' }}>
-            <tbody>
-              {book.organizingRules && (
-                <tr>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>organizing</td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.organizingRules}</td>
-                </tr>
+      <h2 style={{ fontSize: '18px', margin: '20px 0 10px 0' }}>instructions & contact</h2>
+      <table style={{ width: '100%', marginBottom: '20px' }}>
+        <tbody>
+          <tr>
+            <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>contact librarian</td>
+            <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+              {book.librarian?.name || '—'}
+              {book.librarian?.contactInfo && (
+                <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                  {book.librarian.contactInfo}
+                </div>
               )}
-              {book.checkOutInstructions && (
-                <tr>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>check out</td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.checkOutInstructions}</td>
-                </tr>
-              )}
-              {book.checkInInstructions && (
-                <tr>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>check in</td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.checkInInstructions}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </>
-      )}
+            </td>
+          </tr>
+          {book.organizingRules && (
+            <tr>
+              <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>organizing</td>
+              <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.organizingRules}</td>
+            </tr>
+          )}
+          {book.checkOutInstructions && (
+            <tr>
+              <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>check out</td>
+              <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.checkOutInstructions}</td>
+            </tr>
+          )}
+          {book.checkInInstructions && (
+            <tr>
+              <td style={{ padding: '4px 8px', border: '1px solid #999', fontWeight: 'bold' }}>check in</td>
+              <td style={{ padding: '4px 8px', border: '1px solid #999' }}>{book.checkInInstructions}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
       {/* Loan History - only show if authenticated */}
       {auth && loans.length > 0 && (

@@ -141,33 +141,12 @@ export default function NewBookPage() {
 
         <div style={{ marginBottom: '15px' }}>
           <label style={{ display: 'block', marginBottom: '5px' }}>
-            author
-          </label>
-          <input
-            type="text"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-            placeholder="enter author name"
-            style={{
-              width: '100%',
-              maxWidth: '400px',
-              padding: '4px 6px',
-              border: '1px solid #999',
-              fontFamily: 'inherit',
-              fontSize: 'inherit',
-            }}
-            disabled={isSubmitting}
-          />
-        </div>
-
-        <div style={{ marginBottom: '15px' }}>
-          <label style={{ display: 'block', marginBottom: '5px' }}>
             description
           </label>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="brief description of the book"
+            placeholder="brief description of the item"
             rows={3}
             style={{
               width: '100%',
@@ -184,10 +163,31 @@ export default function NewBookPage() {
 
         <hr style={{ border: 'none', borderTop: '1px solid #ccc', margin: '20px 0' }} />
         
-        <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>instructions (optional)</h2>
+        <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>additional details (optional)</h2>
         <p style={{ margin: '0 0 15px 0', color: '#666', fontSize: '12px' }}>
-          these help other librarians and borrowers know how to handle this item
+          extra information and handling instructions
         </p>
+
+        <div style={{ marginBottom: '15px' }}>
+          <label style={{ display: 'block', marginBottom: '5px', fontSize: '12px', color: '#666' }}>
+            author (if applicable)
+          </label>
+          <input
+            type="text"
+            value={author}
+            onChange={(e) => setAuthor(e.target.value)}
+            placeholder="author or creator name"
+            style={{
+              width: '100%',
+              maxWidth: '400px',
+              padding: '4px 6px',
+              border: '1px solid #999',
+              fontFamily: 'inherit',
+              fontSize: 'inherit',
+            }}
+            disabled={isSubmitting}
+          />
+        </div>
 
         <div style={{ marginBottom: '15px' }}>
           <label style={{ display: 'block', marginBottom: '5px' }}>

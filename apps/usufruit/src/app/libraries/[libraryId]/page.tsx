@@ -141,7 +141,7 @@ export default function LibraryPage() {
           <thead>
             <tr>
               <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>title</th>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>author</th>
+              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>assigned librarian</th>
               <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>status</th>
             </tr>
           </thead>
@@ -158,7 +158,7 @@ export default function LibraryPage() {
                   )}
                 </td>
                 <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {book.author || '—'}
+                  {book.librarian?.name || '—'}
                 </td>
                 <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
                   <span style={{ color: 'green', fontSize: '12px' }}>available</span>
