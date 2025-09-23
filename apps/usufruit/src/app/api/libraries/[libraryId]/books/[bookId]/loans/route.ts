@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string; bookId: string } }
 ) {
   try {
-    const { libraryId, bookId } = params;
+    const { libraryId, bookId } = await params;
     
     // No authorization required - any librarian can view loan history
     
@@ -43,7 +43,7 @@ export async function POST(
   { params }: { params: { libraryId: string; bookId: string } }
 ) {
   try {
-    const { libraryId, bookId } = params;
+    const { libraryId, bookId } = await params;
     const body = await request.json();
     const { librarianId, dueDate } = body;
 

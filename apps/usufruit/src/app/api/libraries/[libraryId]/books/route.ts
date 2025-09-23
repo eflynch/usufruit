@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string } }
 ) {
   try {
-    const { libraryId } = params;
+    const { libraryId } = await params;
     
     // No authorization required - any librarian can view all books
     
@@ -35,7 +35,7 @@ export async function POST(
   { params }: { params: { libraryId: string } }
 ) {
   try {
-    const { libraryId } = params;
+    const { libraryId } = await params;
     const body = await request.json();
     const { title, author, description, organizingRules, checkInInstructions, checkOutInstructions, librarianId } = body;
 

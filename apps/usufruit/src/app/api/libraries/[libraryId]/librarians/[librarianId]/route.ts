@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string; librarianId: string } }
 ) {
   try {
-    const { libraryId, librarianId } = params;
+    const { libraryId, librarianId } = await params;
     
     // Get requesting librarian from Authorization header
     const authHeader = request.headers.get('authorization');
@@ -61,7 +61,7 @@ export async function PATCH(
   { params }: { params: { libraryId: string; librarianId: string } }
 ) {
   try {
-    const { libraryId, librarianId } = params;
+    const { libraryId, librarianId } = await params;
     const body = await request.json();
     const { isSuper } = body;
 

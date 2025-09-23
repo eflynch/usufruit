@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string } }
 ) {
   try {
-    const { libraryId } = params;
+    const { libraryId } = await params;
     
     const library = await DatabaseService.getLibraryById(libraryId);
     

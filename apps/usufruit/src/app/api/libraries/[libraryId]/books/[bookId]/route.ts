@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string; bookId: string } }
 ) {
   try {
-    const { libraryId, bookId } = params;
+    const { libraryId, bookId } = await params;
     
     // No authorization required - any librarian can view any book
     
@@ -42,7 +42,7 @@ export async function PUT(
   { params }: { params: { libraryId: string; bookId: string } }
 ) {
   try {
-    const { libraryId, bookId } = params;
+    const { libraryId, bookId } = await params;
     const body = await request.json();
     
     // Require authorization for modifying books

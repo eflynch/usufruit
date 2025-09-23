@@ -6,7 +6,7 @@ export async function GET(
   { params }: { params: { libraryId: string } }
 ) {
   try {
-    const { libraryId } = params;
+    const { libraryId } = await params;
     
     // Get requesting librarian from Authorization header or query param
     const authHeader = request.headers.get('authorization');
@@ -54,7 +54,7 @@ export async function POST(
   { params }: { params: { libraryId: string } }
 ) {
   try {
-    const { libraryId } = params;
+    const { libraryId } = await params;
     const body = await request.json();
     const { name, contactInfo, isSuper } = body;
 
