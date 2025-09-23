@@ -9,6 +9,8 @@ export type Librarian = {
   id: string;
   name: string;
   contactInfo: string;
+  isSuper: boolean;
+  secretKey?: string; // Optional because it won't always be included
   libraryId: string;
   createdAt: Date;
   updatedAt: Date;

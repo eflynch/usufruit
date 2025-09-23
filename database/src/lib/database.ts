@@ -59,9 +59,17 @@ export class DatabaseService {
     name: string;
     contactInfo: string;
     libraryId: string;
+    isSuper?: boolean;
   }) {
+    // Generate a unique secret key for the new librarian
+    const { randomBytes } = await import('crypto');
+    const secretKey = randomBytes(32).toString('hex');
+    
     return prisma.librarian.create({
-      data,
+      data: {
+        ...data,
+        secretKey,
+      },
       include: {
         library: true,
         books: true,
@@ -88,9 +96,112 @@ export class DatabaseService {
     });
   }
 
+  static async getLibrarianByIdSecure(id: string, requestingLibrarianId?: string) {
+    const librarian = await prisma.librarian.findUnique({
+      where: { id },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+
+    if (!librarian) return null;
+
+    // If no requesting librarian, remove secret key
+    if (!requestingLibrarianId) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { secretKey, ...librarianWithoutSecret } = librarian;
+      return librarianWithoutSecret;
+    }
+
+    // Check if requesting librarian is super or the same librarian
+    const requestingLibrarian = await prisma.librarian.findUnique({
+      where: { id: requestingLibrarianId },
+    });
+
+    // Show secret key only if requesting librarian is super or it's their own profile
+    if (requestingLibrarian?.isSuper || requestingLibrarianId === id) {
+      return librarian;
+    } else {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { secretKey, ...librarianWithoutSecret } = librarian;
+      return librarianWithoutSecret;
+    }
+  }
+
   static async getLibrariansByLibraryId(libraryId: string) {
     return prisma.librarian.findMany({
       where: { libraryId },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+  }
+
+  static async getLibrariansByLibraryIdSecure(libraryId: string, requestingLibrarianId?: string) {
+    const librarians = await prisma.librarian.findMany({
+      where: { libraryId },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+
+    if (!requestingLibrarianId) {
+      // Remove secret keys from all librarians
+      return librarians.map(librarian => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { secretKey, ...librarianWithoutSecret } = librarian;
+        return librarianWithoutSecret;
+      });
+    }
+
+    // Check if requesting librarian is super
+    const requestingLibrarian = await prisma.librarian.findUnique({
+      where: { id: requestingLibrarianId },
+    });
+
+    if (requestingLibrarian?.isSuper) {
+      // Super librarians can see all secret keys
+      return librarians;
+    } else {
+      // Regular librarians can only see their own secret key
+      return librarians.map(librarian => {
+        if (librarian.id === requestingLibrarianId) {
+          return librarian; // Show their own secret key
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { secretKey, ...librarianWithoutSecret } = librarian;
+          return librarianWithoutSecret;
+        }
+      });
+    }
+  }
+
+  static async authenticateLibrarian(secretKey: string) {
+    return prisma.librarian.findUnique({
+      where: { secretKey },
+      include: {
+        library: true,
+        books: true,
+      },
+    });
+  }
+
+  static async updateLibrarianSuperStatus(librarianId: string, isSuper: boolean, requestingLibrarianId: string) {
+    // Only super librarians can change super status
+    const requestingLibrarian = await prisma.librarian.findUnique({
+      where: { id: requestingLibrarianId },
+    });
+
+    if (!requestingLibrarian?.isSuper) {
+      throw new Error('Only super librarians can modify super status');
+    }
+
+    return prisma.librarian.update({
+      where: { id: librarianId },
+      data: { isSuper },
       include: {
         library: true,
         books: true,

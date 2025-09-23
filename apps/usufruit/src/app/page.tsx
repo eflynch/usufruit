@@ -8,6 +8,7 @@ export default function Home() {
     id: '1',
     name: 'Test Librarian',
     contactInfo: 'test@example.com',
+    isSuper: false,
     libraryId: 'lib-1',
     createdAt: new Date(),
     updatedAt: new Date()
@@ -43,7 +44,11 @@ export default function Home() {
                 </div>
                 <div className={styles.feature}>
                   <h3>👥 Community Librarians</h3>
-                  <p>Everyone can be a librarian, responsible for their own items</p>
+                  <p>Everyone can be a librarian with secure access controls and secret keys</p>
+                </div>
+                <div className={styles.feature}>
+                  <h3>🔐 Super Librarians</h3>
+                  <p>Designated super librarians can manage permissions and access all features</p>
                 </div>
                 <div className={styles.feature}>
                   <h3>🔄 Easy Loans</h3>

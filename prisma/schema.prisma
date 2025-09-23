@@ -14,6 +14,8 @@ model Librarian {
   id          String @id @default(cuid())
   name        String
   contactInfo String
+  isSuper     Boolean @default(false)
+  secretKey   String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   

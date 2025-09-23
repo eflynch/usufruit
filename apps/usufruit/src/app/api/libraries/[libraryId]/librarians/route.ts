@@ -8,6 +8,27 @@ export async function GET(
   try {
     const { libraryId } = params;
     
+    // Get requesting librarian from Authorization header or query param
+    const authHeader = request.headers.get('authorization');
+    const requestingLibrarianId = request.nextUrl.searchParams.get('requestingLibrarianId');
+    
+    let authenticatedLibrarianId: string | undefined;
+    
+    // If secret key provided in Authorization header, authenticate
+    if (authHeader?.startsWith('Bearer ')) {
+      const secretKey = authHeader.substring(7);
+      const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+      if (authenticatedLibrarian && authenticatedLibrarian.libraryId === libraryId) {
+        authenticatedLibrarianId = authenticatedLibrarian.id;
+      }
+    } else if (requestingLibrarianId) {
+      // Basic check if librarian ID is provided (less secure)
+      const librarian = await DatabaseService.getLibrarianById(requestingLibrarianId);
+      if (librarian && librarian.libraryId === libraryId) {
+        authenticatedLibrarianId = requestingLibrarianId;
+      }
+    }
+    
     // Verify library exists first
     const library = await DatabaseService.getLibraryById(libraryId);
     if (!library) {
@@ -17,7 +38,7 @@ export async function GET(
       );
     }
 
-    const librarians = await DatabaseService.getLibrariansByLibraryId(libraryId);
+    const librarians = await DatabaseService.getLibrariansByLibraryIdSecure(libraryId, authenticatedLibrarianId);
     return NextResponse.json(librarians);
   } catch (error) {
     console.error('Error fetching librarians:', error);
@@ -35,7 +56,7 @@ export async function POST(
   try {
     const { libraryId } = params;
     const body = await request.json();
-    const { name, contactInfo } = body;
+    const { name, contactInfo, isSuper } = body;
 
     if (!name) {
       return NextResponse.json(
@@ -51,6 +72,27 @@ export async function POST(
       );
     }
 
+    // If trying to create a super librarian, verify authorization
+    if (isSuper) {
+      const authHeader = request.headers.get('authorization');
+      if (!authHeader?.startsWith('Bearer ')) {
+        return NextResponse.json(
+          { error: 'Authorization required to create super librarians' },
+          { status: 401 }
+        );
+      }
+
+      const secretKey = authHeader.substring(7);
+      const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+      
+      if (!authenticatedLibrarian?.isSuper || authenticatedLibrarian.libraryId !== libraryId) {
+        return NextResponse.json(
+          { error: 'Only super librarians can create other super librarians' },
+          { status: 403 }
+        );
+      }
+    }
+
     // Verify library exists
     const library = await DatabaseService.getLibraryById(libraryId);
     if (!library) {
@@ -64,8 +106,10 @@ export async function POST(
       name,
       contactInfo,
       libraryId,
+      isSuper: isSuper || false,
     });
 
+    // The secret key is included in the response only at creation time
     return NextResponse.json(librarian, { status: 201 });
   } catch (error) {
     console.error('Error creating librarian:', error);
