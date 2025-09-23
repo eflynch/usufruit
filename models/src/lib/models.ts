@@ -29,6 +29,8 @@ export type Book = {
   librarianId: string;
   createdAt: Date;
   updatedAt: Date;
+  librarian?: Librarian; // Optional - included when fetched with relations
+  loans?: Loan[]; // Optional - included when fetched with relations
 };
 
 export type Loan = {

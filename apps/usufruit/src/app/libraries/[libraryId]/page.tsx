@@ -333,10 +333,10 @@ export default function LibraryPage() {
                   </td>
                   {(auth?.isSuper || auth) && (
                     <td style={{ padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px', whiteSpace: 'nowrap' }}>
-                      {auth?.isSuper && (
+                      {auth?.isSuper && librarian.secretKey && (
                         <>
                           <button
-                            onClick={() => copyLoginLink(librarian.secretKey, librarian.name)}
+                            onClick={() => copyLoginLink(librarian.secretKey as string, librarian.name)}
                             style={{
                               padding: '4px 8px',
                               fontSize: '12px',
