@@ -10,8 +10,6 @@ DOMAIN=""
 PROJECT_NAME="usufruit"
 DB_PASSWORD=""
 NODE_ENV="production"
-ENABLE_SSL="false"
-EMAIL=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -63,16 +61,6 @@ configure_deployment() {
     if [ -z "$DB_PASSWORD" ]; then
         read -s -p "Enter a secure database password: " DB_PASSWORD
         echo
-    fi
-    
-    # Ask about SSL
-    read -p "Enable SSL with Let's Encrypt? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        ENABLE_SSL="true"
-        if [ -z "$EMAIL" ]; then
-            read -p "Enter your email for Let's Encrypt notifications: " EMAIL
-        fi
     fi
     
     log_success "Configuration completed!"
@@ -161,18 +149,9 @@ create_docker_compose() {
         cp docker-compose.yml docker-compose.yml.backup.$(date +%s)
     fi
     
-    # Determine the NEXTAUTH_URL based on SSL setting
-    if [ "$ENABLE_SSL" = "true" ]; then
-        NEXTAUTH_URL="https://${DOMAIN}"
-        SSL_VOLUMES="      - certbot_certs:/etc/letsencrypt:ro"
-        SSL_PORTS="      - \"443:443\""
-    else
-        NEXTAUTH_URL="http://${DOMAIN}"
-        SSL_VOLUMES=""
-        SSL_PORTS=""
-    fi
-    
     cat > docker-compose.yml << EOF
+version: '3.8'
+
 services:
   postgres:
     image: postgres:15
@@ -194,7 +173,7 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
       - NEXTAUTH_SECRET=\${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXTAUTH_URL=http://${DOMAIN}
     depends_on:
       - postgres
     networks:
@@ -207,11 +186,8 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
-${SSL_PORTS}
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - /var/www/certbot:/var/www/certbot:ro
-${SSL_VOLUMES}
     depends_on:
       - app
     networks:
@@ -219,8 +195,7 @@ ${SSL_VOLUMES}
     restart: unless-stopped
 
 volumes:
-  postgres_data:$([ "$ENABLE_SSL" = "true" ] && echo "
-  certbot_certs:")
+  postgres_data:
 
 networks:
   app-network:
@@ -243,52 +218,69 @@ create_dockerfile() {
 # Build stage
 FROM node:18-alpine AS builder
 
+# Set build-time environment variables for better performance
+ENV NODE_ENV=production
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+ENV CI=true
+
 WORKDIR /app
 
-# Copy package files
+# Copy package files first for better layer caching
 COPY package*.json ./
 COPY apps/usufruit/package*.json ./apps/usufruit/
 COPY database/package*.json ./database/
 COPY models/package*.json ./models/
 
-# Install dependencies
-RUN npm ci
+# Install dependencies with optimizations
+RUN npm ci --only=production --no-audit --no-fund --silent
+
+# Copy NX configuration files
+COPY nx.json ./
+COPY tsconfig.base.json ./
+COPY .eslintrc.json ./
+
+# Copy workspace configuration
+COPY workspace.json ./
 
 # Copy source code
-COPY . .
+COPY apps/ ./apps/
+COPY database/ ./database/
+COPY models/ ./models/
+COPY prisma/ ./prisma/
 
-# Debug: Show the project structure
-RUN echo "=== Project Structure ===" && \
-    ls -la && \
-    echo "=== Apps Directory ===" && \
-    ls -la apps/ && \
-    echo "=== Database Directory ===" && \
-    ls -la database/ && \
-    echo "=== Models Directory ===" && \
-    ls -la models/
+# Generate Prisma client with timeout protection
+RUN timeout 300 npx prisma generate || (echo "Prisma generation timed out" && exit 1)
 
-# Generate Prisma client
-RUN npx prisma generate
-
-RUN echo "=== Building Next.js app ===" && \
-    npx nx build usufruit --verbose
+# Build with resource limits and cleanup
+RUN echo "=== Building Next.js app with NX ===" && \
+    timeout 600 npx nx build usufruit --prod --verbose --skip-nx-cache || \
+    (echo "Build timed out after 10 minutes" && exit 1) && \
+    echo "=== Build completed, cleaning up ===" && \
+    rm -rf node_modules/.cache && \
+    rm -rf .nx/cache && \
+    npm cache clean --force
 
 # Production stage
 FROM node:18-alpine AS runner
 
 WORKDIR /app
 
-# Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+# Install dumb-init for proper process handling
+RUN apk add --no-cache dumb-init
 
-# Copy only what we need for production
+# Create non-root user
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Copy only production dependencies
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
+
+# Copy built application
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./.next
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/package.json ./package.json
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules ./node_modules
 
-# Copy Prisma client (needed for database operations)
+# Copy Prisma client and schema
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder --chown=nextjs:nodejs /app/prisma ./prisma
 
@@ -296,14 +288,52 @@ USER nextjs
 
 EXPOSE 3000
 
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+ENV NODE_ENV=production
 
-# Start the application
+# Use dumb-init for proper signal handling and process cleanup
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["npx", "next", "start"]
 EOF
 
     log_success "Dockerfile created!"
+    
+    # Create build optimization script
+    cat > optimize_build.sh << 'EOF'
+#!/bin/bash
+
+# Build Optimization Script for NX/Next.js
+echo "=== Optimizing build environment ==="
+
+# Kill any hanging node/nx processes
+echo "Cleaning up existing Node.js processes..."
+pkill -f "nx build" 2>/dev/null || true
+pkill -f "next build" 2>/dev/null || true
+pkill -f "node.*usufruit" 2>/dev/null || true
+
+# Clean up NX cache
+echo "Cleaning NX cache..."
+rm -rf .nx/cache
+rm -rf node_modules/.cache
+
+# Clear npm cache
+echo "Clearing npm cache..."
+npm cache clean --force 2>/dev/null || true
+
+# Clean up any Docker build cache that might be interfering
+echo "Pruning Docker build cache..."
+docker builder prune -f 2>/dev/null || true
+
+# Free up memory
+echo "Clearing system caches..."
+sync
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
+echo "=== Build environment optimized ==="
+EOF
+    
+    chmod +x optimize_build.sh
     
     # Create .dockerignore for optimized builds
     if [ -f .dockerignore ]; then
@@ -367,17 +397,6 @@ create_nginx_config() {
         cp nginx.conf nginx.conf.backup.$(date +%s)
     fi
     
-    if [ "$ENABLE_SSL" = "true" ]; then
-        create_ssl_nginx_config
-    else
-        create_http_nginx_config
-    fi
-    
-    log_success "Nginx configuration created!"
-}
-
-# Function to create HTTP-only Nginx configuration
-create_http_nginx_config() {
     cat > nginx.conf << EOF
 events {
     worker_connections 1024;
@@ -396,20 +415,6 @@ http {
         listen 80;
         server_name ${DOMAIN};
         
-        # Let's Encrypt challenge location - MUST be before other locations
-        location ^~ /.well-known/acme-challenge/ {
-            root /var/www/certbot;
-            try_files \$uri \$uri/ =404;
-            allow all;
-        }
-        
-        # Static file caching - specific paths first
-        location /_next/static/ {
-            proxy_pass http://app;
-            expires 1y;
-            add_header Cache-Control "public, immutable";
-        }
-        
         # Gzip compression
         gzip on;
         gzip_vary on;
@@ -419,7 +424,6 @@ http {
         # Client max body size (for file uploads)
         client_max_body_size 10M;
         
-        # General proxy - MUST be last
         location / {
             proxy_pass http://app;
             proxy_http_version 1.1;
@@ -429,87 +433,6 @@ http {
             proxy_set_header X-Real-IP \$remote_addr;
             proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto \$scheme;
-            proxy_cache_bypass \$http_upgrade;
-            
-            # Rate limiting
-            limit_req zone=api burst=20 nodelay;
-        }
-    }
-}
-EOF
-}
-
-# Function to create SSL-enabled Nginx configuration
-create_ssl_nginx_config() {
-    cat > nginx.conf << EOF
-events {
-    worker_connections 1024;
-}
-
-http {
-    upstream app {
-        server app:3000;
-    }
-
-    # Rate limiting
-    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
-
-    # HTTP server - redirect to HTTPS
-    server {
-        listen 80;
-        server_name ${DOMAIN};
-        
-        # Let's Encrypt challenge location
-        location /.well-known/acme-challenge/ {
-            root /var/www/certbot;
-        }
-        
-        # Redirect all HTTP traffic to HTTPS
-        location / {
-            return 301 https://\$server_name\$request_uri;
-        }
-    }
-
-    # HTTPS server
-    server {
-        listen 443 ssl http2;
-        server_name ${DOMAIN};
-        
-        # SSL configuration
-        ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-        
-        # SSL settings
-        ssl_protocols TLSv1.2 TLSv1.3;
-        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
-        ssl_prefer_server_ciphers off;
-        ssl_session_cache shared:SSL:10m;
-        ssl_session_timeout 10m;
-        
-        # Security headers
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-        add_header X-Content-Type-Options nosniff;
-        add_header X-Frame-Options DENY;
-        add_header X-XSS-Protection "1; mode=block";
-        
-        # Gzip compression
-        gzip on;
-        gzip_vary on;
-        gzip_min_length 1024;
-        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
-
-        # Client max body size (for file uploads)
-        client_max_body_size 10M;
-        
-        location / {
-            proxy_pass http://app;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade \$http_upgrade;
-            proxy_set_header Connection 'upgrade';
-            proxy_set_header Host \$host;
-            proxy_set_header X-Real-IP \$remote_addr;
-            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto https;
             proxy_cache_bypass \$http_upgrade;
             
             # Rate limiting
@@ -525,6 +448,8 @@ http {
     }
 }
 EOF
+
+    log_success "Nginx configuration created!"
 }
 
 # Function to generate secure secrets
@@ -545,18 +470,11 @@ generate_secrets() {
         log_info "Generated new NEXTAUTH_SECRET"
     fi
     
-    # Determine the NEXTAUTH_URL based on SSL setting
-    if [ "$ENABLE_SSL" = "true" ]; then
-        NEXTAUTH_URL="https://${DOMAIN}"
-    else
-        NEXTAUTH_URL="http://${DOMAIN}"
-    fi
-    
     # Create .env file
     cat > .env << EOF
 DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-NEXTAUTH_URL=${NEXTAUTH_URL}
+NEXTAUTH_URL=http://${DOMAIN}
 NODE_ENV=production
 EOF
 
@@ -720,170 +638,11 @@ $DOCKER_COMPOSE logs --tail=20
 
 echo
 echo "SSL Certificate Status:"
-if docker volume ls | grep -q "certbot_certs"; then
-    if $DOCKER_COMPOSE exec -T nginx test -f /etc/letsencrypt/live/*/cert.pem 2>/dev/null; then
-        $DOCKER_COMPOSE exec -T nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)" || echo "SSL certificate files found but could not read details"
-    else
-        echo "SSL volumes exist but no certificate files found"
-    fi
-else
-    echo "SSL not configured (no certificate volumes found)"
-fi
+$DOCKER_COMPOSE exec nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)"
 EOF
 
     chmod +x monitor.sh
     log_success "Monitoring script created!"
-}
-
-# Function to install certbot
-install_certbot() {
-    log_info "Installing Certbot for SSL certificates..."
-    
-    # Check if certbot is already installed
-    if command -v certbot >/dev/null 2>&1; then
-        log_success "Certbot is already installed, skipping installation"
-        return 0
-    fi
-    
-    # Update package index
-    apt-get update
-    
-    # Install certbot
-    apt-get install -y certbot
-    
-    log_success "Certbot installed successfully!"
-}
-
-# Function to obtain SSL certificate
-obtain_ssl_certificate() {
-    log_info "Obtaining SSL certificate from Let's Encrypt..."
-    
-    # Get Docker Compose command
-    local DOCKER_COMPOSE=$(get_docker_compose_cmd)
-    
-    # Create directory for webroot challenge
-    mkdir -p /var/www/certbot
-    chmod 755 /var/www/certbot
-    
-    # Check if certificate already exists
-    if [ -d "/etc/letsencrypt/live/${DOMAIN}" ]; then
-        log_success "SSL certificate already exists for ${DOMAIN}, skipping..."
-        return 0
-    fi
-    
-    # Make sure we have HTTP-only configuration first
-    log_info "Creating temporary HTTP-only nginx configuration for certificate validation..."
-    ENABLE_SSL="false"
-    create_nginx_config
-    
-    # Start nginx to serve the challenge
-    log_info "Starting nginx for certificate validation..."
-    $DOCKER_COMPOSE up -d nginx
-    
-    # Wait for nginx to be ready and test it
-    log_info "Waiting for nginx to be ready..."
-    sleep 10
-    
-    # Test that nginx is serving correctly
-    if ! curl -s "http://${DOMAIN}/.well-known/acme-challenge/test" | grep -q "404"; then
-        log_warning "Nginx might not be serving challenge files correctly, but continuing..."
-    fi
-    
-    # Obtain certificate using webroot method
-    if certbot certonly \
-        --webroot \
-        --webroot-path=/var/www/certbot \
-        --email ${EMAIL} \
-        --agree-tos \
-        --no-eff-email \
-        --domains ${DOMAIN} \
-        --non-interactive; then
-        
-        log_success "SSL certificate obtained successfully!"
-        
-        # Create certificate volume for Docker
-        log_info "Setting up certificate volume..."
-        docker volume create ${PROJECT_NAME}_certbot_certs 2>/dev/null || true
-        
-        # Copy certificates to volume
-        docker run --rm -v /etc/letsencrypt:/src:ro -v ${PROJECT_NAME}_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
-        
-    else
-        log_error "Failed to obtain SSL certificate"
-        log_warning "Continuing with HTTP-only configuration..."
-        ENABLE_SSL="false"
-        return 1
-    fi
-}
-
-# Function to setup SSL certificate renewal
-setup_ssl_renewal() {
-    log_info "Setting up SSL certificate auto-renewal..."
-    
-    # Create renewal script
-    cat > renew_ssl.sh << EOF
-#!/bin/bash
-# SSL Certificate Renewal Script
-
-set -e
-
-log_info() {
-    echo -e "\033[0;34m[INFO]\033[0m \$1"
-}
-
-log_success() {
-    echo -e "\033[0;32m[SUCCESS]\033[0m \$1"
-}
-
-log_error() {
-    echo -e "\033[0;31m[ERROR]\033[0m \$1"
-}
-
-# Detect Docker Compose command
-if command -v docker-compose >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker-compose"
-elif docker compose version >/dev/null 2>&1; then
-    DOCKER_COMPOSE="docker compose"
-else
-    log_error "Neither 'docker-compose' nor 'docker compose' is available"
-    exit 1
-fi
-
-log_info "Renewing SSL certificates..."
-
-# Renew certificates
-if certbot renew --webroot --webroot-path=/var/www/certbot --quiet; then
-    log_success "SSL certificates renewed successfully!"
-    
-    # Update Docker volumes with new certificates
-    docker run --rm -v /etc/letsencrypt:/src:ro -v usufruit_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
-    
-    # Reload nginx
-    \$DOCKER_COMPOSE exec nginx nginx -s reload
-    
-    log_success "Nginx reloaded with new certificates!"
-else
-    log_error "Failed to renew SSL certificates"
-    exit 1
-fi
-EOF
-
-    chmod +x renew_ssl.sh
-    
-    # Setup cron job for automatic renewal (only if not already exists)
-    if [ ! -f /etc/cron.d/usufruit-ssl-renewal ]; then
-        cat > /etc/cron.d/usufruit-ssl-renewal << EOF
-# Usufruit SSL Certificate Renewal
-# Runs twice daily to check for certificate renewal
-0 12 * * * cd $(pwd) && ./renew_ssl.sh
-0 0 * * * cd $(pwd) && ./renew_ssl.sh
-EOF
-        log_info "SSL renewal cron job created"
-    else
-        log_info "SSL renewal cron job already exists, skipping..."
-    fi
-    
-    log_success "SSL auto-renewal configured!"
 }
 
 # Function to setup firewall
@@ -990,61 +749,35 @@ EOF
     log_success "Backup script created with daily automation!"
 }
 
-# Function to add SSL to existing deployment
-add_ssl_to_existing() {
-    log_info "Adding SSL to existing Usufruit deployment..."
+# Function to cleanup build processes and caches
+cleanup_build_environment() {
+    log_info "Cleaning up build environment..."
     
-    # Get Docker Compose command
-    local DOCKER_COMPOSE=$(get_docker_compose_cmd)
+    # Kill any hanging node/nx processes
+    pkill -f "nx build" 2>/dev/null || true
+    pkill -f "next build" 2>/dev/null || true  
+    pkill -f "node.*usufruit" 2>/dev/null || true
     
-    if [ ! -f docker-compose.yml ] || [ ! -f .env ]; then
-        log_error "No existing deployment found. Please run a full deployment first."
-        exit 1
+    # Clean up NX and npm caches
+    rm -rf .nx/cache 2>/dev/null || true
+    rm -rf node_modules/.cache 2>/dev/null || true
+    npm cache clean --force 2>/dev/null || true
+    
+    # Prune Docker build cache
+    docker builder prune -f 2>/dev/null || true
+    
+    # Clear system caches if possible (helps with memory pressure)
+    if [ -w /proc/sys/vm/drop_caches ]; then
+        sync
+        echo 3 > /proc/sys/vm/drop_caches
     fi
     
-    # Get domain from existing .env file
-    DOMAIN=$(grep "NEXTAUTH_URL=" .env | cut -d'=' -f2 | sed 's|https\?://||')
-    
-    if [ -z "$DOMAIN" ]; then
-        log_error "Could not determine domain from existing configuration"
-        exit 1
-    fi
-    
-    # Ask for email
-    read -p "Enter your email for Let's Encrypt notifications: " EMAIL
-    
-    ENABLE_SSL="true"
-    
-    # Install certbot
-    install_certbot
-    
-    # Obtain certificate
-    obtain_ssl_certificate
-    
-    # Recreate configurations with SSL
-    create_docker_compose
-    create_nginx_config
-    generate_secrets
-    
-    # Restart services
-    $DOCKER_COMPOSE down
-    $DOCKER_COMPOSE up -d
-    
-    setup_ssl_renewal
-    
-    log_success "🎉 SSL has been added to your Usufruit deployment!"
-    log_info "Your library management system is now available at: https://${DOMAIN}"
+    log_success "Build environment cleaned up!"
 }
 
 # Main deployment function
 main() {
     log_info "Starting Usufruit deployment..."
-    
-    # Check for special flags
-    if [[ "$1" == "--add-ssl" ]]; then
-        add_ssl_to_existing
-        exit 0
-    fi
     
     # Check if this appears to be a re-run
     if [ -f docker-compose.yml ] && [ -f .env ]; then
@@ -1066,11 +799,6 @@ main() {
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
     log_info "Using Docker Compose command: $DOCKER_COMPOSE_CMD"
     
-    # Install certbot if SSL is enabled
-    if [ "$ENABLE_SSL" = "true" ]; then
-        install_certbot
-    fi
-    
     create_dockerfile
     create_docker_compose
     create_nginx_config
@@ -1083,11 +811,31 @@ main() {
     
     log_info "Building and starting services..."
     
-    # Build the application
-    if ! $DOCKER_COMPOSE_CMD build; then
-        log_error "Failed to build application containers"
-        exit 1
+    # Clean up any previous build artifacts/processes
+    cleanup_build_environment
+    
+    # Set resource limits for Docker build
+    export DOCKER_BUILDKIT=1
+    export BUILDKIT_PROGRESS=plain
+    
+    # Build the application with better resource management
+    log_info "Starting Docker build (this may take several minutes)..."
+    if ! timeout 1200 $DOCKER_COMPOSE_CMD build --no-cache; then
+        log_error "Failed to build application containers (timed out after 20 minutes)"
+        
+        # Clean up any hanging processes
+        log_info "Cleaning up build processes..."
+        cleanup_build_environment
+        
+        # Try a second time with cache
+        log_info "Retrying build with cache..."
+        if ! timeout 600 $DOCKER_COMPOSE_CMD build; then
+            log_error "Build failed on retry as well"
+            exit 1
+        fi
     fi
+    
+    log_success "Application built successfully!"
     
     # Start database first
     if ! $DOCKER_COMPOSE_CMD up -d postgres; then
@@ -1116,32 +864,19 @@ main() {
     # Run database migrations or create initial migration
     log_info "Setting up database schema..."
     
-    # Check if we need to force reset (for fresh deployments)
-    if [[ "$1" == "--reset-db" ]] || [[ "$1" == "--fresh" ]]; then
-        log_warning "Forcing database reset as requested..."
-        $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate reset --force --skip-seed || true
-    fi
-    
-    # For initial deployment, just use db push to get the schema in place
-    # This avoids migration complexity for the first deployment
-    log_info "Syncing database schema..."
-    if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma db push --accept-data-loss; then
-        log_error "Failed to sync database schema"
-        exit 1
-    fi
-    
-    log_success "Database schema synchronized successfully!"
-    
-    # Setup SSL if enabled
-    if [ "$ENABLE_SSL" = "true" ]; then
-        log_info "Setting up SSL certificates..."
-        obtain_ssl_certificate
-        
-        # Recreate nginx config with SSL and restart
-        create_nginx_config
-        $DOCKER_COMPOSE_CMD restart nginx
-        
-        setup_ssl_renewal
+    # Check if migrations directory exists
+    if ! $DOCKER_COMPOSE_CMD run --rm app test -d prisma/migrations; then
+        log_info "No migrations found, creating initial migration..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate dev --name init --skip-seed; then
+            log_error "Failed to create initial migration"
+            exit 1
+        fi
+    else
+        log_info "Running existing migrations..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy; then
+            log_error "Database migrations failed"
+            exit 1
+        fi
     fi
     
     # Start all services
@@ -1152,31 +887,17 @@ main() {
     
     log_success "🎉 Usufruit deployment completed successfully!"
     echo
-    if [ "$ENABLE_SSL" = "true" ]; then
-        log_info "Your library management system is now available at: https://${DOMAIN}"
-        log_success "SSL certificate installed and auto-renewal configured!"
-    else
-        log_info "Your library management system is now available at: http://${DOMAIN}"
-        log_info "To add SSL later, run: sudo ./deploy.sh --add-ssl"
-    fi
+    log_info "Your library management system is now available at: http://${DOMAIN}"
     log_info "Management commands:"
-    log_info "  ./start.sh      - Start the system"
-    log_info "  ./update.sh     - Update to latest version"
-    log_info "  ./backup.sh     - Create database backup"
-    log_info "  ./monitor.sh    - Check system status"
-    if [ "$ENABLE_SSL" = "true" ]; then
-        log_info "  ./renew_ssl.sh  - Manually renew SSL certificates"
-    else
-        log_info "  sudo ./deploy.sh --add-ssl - Add SSL to existing deployment"
-    fi
+    log_info "  ./start.sh     - Start the system"
+    log_info "  ./update.sh    - Update to latest version"
+    log_info "  ./backup.sh    - Create database backup"
+    log_info "  ./monitor.sh   - Check system status"
     echo
     log_warning "Don't forget to:"
     log_warning "  1. Set up your first super librarian account"
     log_warning "  2. Configure your library details"
     log_warning "  3. Test the backup and restore process"
-    if [ "$ENABLE_SSL" = "true" ]; then
-        log_warning "  4. SSL certificates will auto-renew (check logs periodically)"
-    fi
 }
 
 # Run main function
