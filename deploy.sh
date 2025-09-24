@@ -761,11 +761,33 @@ main() {
     # Run database migrations or create initial migration
     log_info "Setting up database schema..."
     
+    # Check if we need to force reset (for fresh deployments)
+    if [[ "$1" == "--reset-db" ]] || [[ "$1" == "--fresh" ]]; then
+        log_warning "Forcing database reset as requested..."
+        $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate reset --force --skip-seed || true
+    fi
+    
     # Check if migrations directory exists
     if ! $DOCKER_COMPOSE_CMD run --rm app test -d prisma/migrations; then
         log_info "No migrations found, creating initial migration..."
-        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate dev --name init --skip-seed; then
-            log_error "Failed to create initial migration"
+        
+        # For first-time setup, use db push to avoid migration drift issues
+        log_info "Using db push for initial schema setup..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma db push --force-reset; then
+            log_error "Failed to set up initial database schema"
+            exit 1
+        fi
+        
+        # Now create the initial migration to match the pushed schema
+        log_info "Creating migration to match current schema..."
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate dev --name init --skip-seed --create-only; then
+            log_error "Failed to create initial migration file"
+            exit 1
+        fi
+        
+        # Mark the migration as applied
+        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate resolve --applied init; then
+            log_error "Failed to mark migration as applied"
             exit 1
         fi
     else
