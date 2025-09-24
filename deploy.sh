@@ -150,8 +150,6 @@ create_docker_compose() {
     fi
     
     cat > docker-compose.yml << EOF
-version: '3.8'
-
 services:
   postgres:
     image: postgres:15
@@ -275,7 +273,7 @@ ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
 
 # Start the application
-CMD ["npm", "run", "start:prod"]
+CMD ["npx", "next", "start"]
 EOF
 
     log_success "Dockerfile created!"
