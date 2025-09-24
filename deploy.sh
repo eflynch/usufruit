@@ -10,6 +10,8 @@ DOMAIN=""
 PROJECT_NAME="usufruit"
 DB_PASSWORD=""
 NODE_ENV="production"
+ENABLE_SSL="false"
+EMAIL=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -61,6 +63,16 @@ configure_deployment() {
     if [ -z "$DB_PASSWORD" ]; then
         read -s -p "Enter a secure database password: " DB_PASSWORD
         echo
+    fi
+    
+    # Ask about SSL
+    read -p "Enable SSL with Let's Encrypt? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        ENABLE_SSL="true"
+        if [ -z "$EMAIL" ]; then
+            read -p "Enter your email for Let's Encrypt notifications: " EMAIL
+        fi
     fi
     
     log_success "Configuration completed!"
@@ -149,6 +161,18 @@ create_docker_compose() {
         cp docker-compose.yml docker-compose.yml.backup.$(date +%s)
     fi
     
+    # Determine the NEXTAUTH_URL based on SSL setting
+    if [ "$ENABLE_SSL" = "true" ]; then
+        NEXTAUTH_URL="https://${DOMAIN}"
+        SSL_VOLUMES="      - certbot_certs:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro"
+        SSL_PORTS="      - \"443:443\""
+    else
+        NEXTAUTH_URL="http://${DOMAIN}"
+        SSL_VOLUMES=""
+        SSL_PORTS=""
+    fi
+    
     cat > docker-compose.yml << EOF
 services:
   postgres:
@@ -171,7 +195,7 @@ services:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
       - NEXTAUTH_SECRET=\${NEXTAUTH_SECRET}
-      - NEXTAUTH_URL=http://${DOMAIN}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
     depends_on:
       - postgres
     networks:
@@ -184,8 +208,10 @@ services:
     image: nginx:alpine
     ports:
       - "80:80"
+${SSL_PORTS}
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+${SSL_VOLUMES}
     depends_on:
       - app
     networks:
@@ -193,7 +219,9 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  postgres_data:$([ "$ENABLE_SSL" = "true" ] && echo "
+  certbot_certs:
+  certbot_www:")
 
 networks:
   app-network:
@@ -340,6 +368,17 @@ create_nginx_config() {
         cp nginx.conf nginx.conf.backup.$(date +%s)
     fi
     
+    if [ "$ENABLE_SSL" = "true" ]; then
+        create_ssl_nginx_config
+    else
+        create_http_nginx_config
+    fi
+    
+    log_success "Nginx configuration created!"
+}
+
+# Function to create HTTP-only Nginx configuration
+create_http_nginx_config() {
     cat > nginx.conf << EOF
 events {
     worker_connections 1024;
@@ -357,6 +396,11 @@ http {
     server {
         listen 80;
         server_name ${DOMAIN};
+        
+        # Let's Encrypt challenge location (for future SSL setup)
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
         
         # Gzip compression
         gzip on;
@@ -391,8 +435,94 @@ http {
     }
 }
 EOF
+}
 
-    log_success "Nginx configuration created!"
+# Function to create SSL-enabled Nginx configuration
+create_ssl_nginx_config() {
+    cat > nginx.conf << EOF
+events {
+    worker_connections 1024;
+}
+
+http {
+    upstream app {
+        server app:3000;
+    }
+
+    # Rate limiting
+    limit_req_zone \$binary_remote_addr zone=api:10m rate=10r/s;
+
+    # HTTP server - redirect to HTTPS
+    server {
+        listen 80;
+        server_name ${DOMAIN};
+        
+        # Let's Encrypt challenge location
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+        
+        # Redirect all HTTP traffic to HTTPS
+        location / {
+            return 301 https://\$server_name\$request_uri;
+        }
+    }
+
+    # HTTPS server
+    server {
+        listen 443 ssl http2;
+        server_name ${DOMAIN};
+        
+        # SSL configuration
+        ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
+        ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
+        
+        # SSL settings
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 10m;
+        
+        # Security headers
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options nosniff;
+        add_header X-Frame-Options DENY;
+        add_header X-XSS-Protection "1; mode=block";
+        
+        # Gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_types text/plain text/css text/xml text/javascript application/javascript application/xml+rss application/json;
+
+        # Client max body size (for file uploads)
+        client_max_body_size 10M;
+        
+        location / {
+            proxy_pass http://app;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade \$http_upgrade;
+            proxy_set_header Connection 'upgrade';
+            proxy_set_header Host \$host;
+            proxy_set_header X-Real-IP \$remote_addr;
+            proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto https;
+            proxy_cache_bypass \$http_upgrade;
+            
+            # Rate limiting
+            limit_req zone=api burst=20 nodelay;
+        }
+
+        # Static file caching
+        location /_next/static/ {
+            proxy_pass http://app;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
+EOF
 }
 
 # Function to generate secure secrets
@@ -413,11 +543,18 @@ generate_secrets() {
         log_info "Generated new NEXTAUTH_SECRET"
     fi
     
+    # Determine the NEXTAUTH_URL based on SSL setting
+    if [ "$ENABLE_SSL" = "true" ]; then
+        NEXTAUTH_URL="https://${DOMAIN}"
+    else
+        NEXTAUTH_URL="http://${DOMAIN}"
+    fi
+    
     # Create .env file
     cat > .env << EOF
 DATABASE_URL=postgresql://usufruit:${DB_PASSWORD}@postgres:5432/usufruit
 NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
-NEXTAUTH_URL=http://${DOMAIN}
+NEXTAUTH_URL=${NEXTAUTH_URL}
 NODE_ENV=production
 EOF
 
@@ -581,11 +718,157 @@ $DOCKER_COMPOSE logs --tail=20
 
 echo
 echo "SSL Certificate Status:"
-$DOCKER_COMPOSE exec nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)"
+if docker volume ls | grep -q certbot_certs; then
+    if $DOCKER_COMPOSE exec -T nginx test -f /etc/letsencrypt/live/*/cert.pem 2>/dev/null; then
+        $DOCKER_COMPOSE exec -T nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)" || echo "SSL certificate files found but could not read details"
+    else
+        echo "SSL volumes exist but no certificate files found"
+    fi
+else
+    echo "SSL not configured (no certificate volumes found)"
+fi
 EOF
 
     chmod +x monitor.sh
     log_success "Monitoring script created!"
+}
+
+# Function to install certbot
+install_certbot() {
+    log_info "Installing Certbot for SSL certificates..."
+    
+    # Check if certbot is already installed
+    if command -v certbot >/dev/null 2>&1; then
+        log_success "Certbot is already installed, skipping installation"
+        return 0
+    fi
+    
+    # Update package index
+    apt-get update
+    
+    # Install certbot
+    apt-get install -y certbot
+    
+    log_success "Certbot installed successfully!"
+}
+
+# Function to obtain SSL certificate
+obtain_ssl_certificate() {
+    log_info "Obtaining SSL certificate from Let's Encrypt..."
+    
+    # Create directory for webroot challenge
+    mkdir -p /var/www/certbot
+    
+    # Check if certificate already exists
+    if [ -d "/etc/letsencrypt/live/${DOMAIN}" ]; then
+        log_success "SSL certificate already exists for ${DOMAIN}, skipping..."
+        return 0
+    fi
+    
+    # Start nginx temporarily to serve the challenge
+    log_info "Starting nginx temporarily for certificate validation..."
+    $DOCKER_COMPOSE_CMD up -d nginx
+    
+    # Wait for nginx to be ready
+    sleep 5
+    
+    # Obtain certificate using webroot method
+    if certbot certonly \
+        --webroot \
+        --webroot-path=/var/www/certbot \
+        --email ${EMAIL} \
+        --agree-tos \
+        --no-eff-email \
+        --domains ${DOMAIN} \
+        --non-interactive; then
+        
+        log_success "SSL certificate obtained successfully!"
+        
+        # Copy certificates to Docker volumes
+        log_info "Setting up certificate volumes..."
+        docker volume create usufruit_certbot_certs
+        docker volume create usufruit_certbot_www
+        
+        # Copy certificates to volume
+        docker run --rm -v /etc/letsencrypt:/src:ro -v usufruit_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
+        docker run --rm -v /var/www/certbot:/src:ro -v usufruit_certbot_www:/dest alpine sh -c "cp -r /src/* /dest/"
+        
+    else
+        log_error "Failed to obtain SSL certificate"
+        log_warning "Continuing with HTTP-only configuration..."
+        ENABLE_SSL="false"
+        return 1
+    fi
+}
+
+# Function to setup SSL certificate renewal
+setup_ssl_renewal() {
+    log_info "Setting up SSL certificate auto-renewal..."
+    
+    # Create renewal script
+    cat > renew_ssl.sh << EOF
+#!/bin/bash
+# SSL Certificate Renewal Script
+
+set -e
+
+log_info() {
+    echo -e "\033[0;34m[INFO]\033[0m \$1"
+}
+
+log_success() {
+    echo -e "\033[0;32m[SUCCESS]\033[0m \$1"
+}
+
+log_error() {
+    echo -e "\033[0;31m[ERROR]\033[0m \$1"
+}
+
+# Detect Docker Compose command
+if command -v docker-compose >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker-compose"
+elif docker compose version >/dev/null 2>&1; then
+    DOCKER_COMPOSE="docker compose"
+else
+    log_error "Neither 'docker-compose' nor 'docker compose' is available"
+    exit 1
+fi
+
+log_info "Renewing SSL certificates..."
+
+# Renew certificates
+if certbot renew --webroot --webroot-path=/var/www/certbot --quiet; then
+    log_success "SSL certificates renewed successfully!"
+    
+    # Update Docker volumes with new certificates
+    docker run --rm -v /etc/letsencrypt:/src:ro -v usufruit_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
+    
+    # Reload nginx
+    \$DOCKER_COMPOSE exec nginx nginx -s reload
+    
+    log_success "Nginx reloaded with new certificates!"
+else
+    log_error "Failed to renew SSL certificates"
+    exit 1
+fi
+EOF
+
+    chmod +x renew_ssl.sh
+    
+    # Setup cron job for automatic renewal (only if not already exists)
+    if [ ! -f /etc/cron.d/usufruit-ssl-renewal ]; then
+        cat > /etc/cron.d/usufruit-ssl-renewal << EOF
+# Usufruit SSL Certificate Renewal
+# Runs twice daily to check for certificate renewal
+0 12 * * * cd $(pwd) && ./renew_ssl.sh
+0 0 * * * cd $(pwd) && ./renew_ssl.sh
+EOF
+        log_info "SSL renewal cron job created"
+    else
+        log_info "SSL renewal cron job already exists, skipping..."
+    fi
+    
+    log_success "SSL auto-renewal configured!"
 }
 
 # Function to setup firewall
@@ -692,9 +975,58 @@ EOF
     log_success "Backup script created with daily automation!"
 }
 
+# Function to add SSL to existing deployment
+add_ssl_to_existing() {
+    log_info "Adding SSL to existing Usufruit deployment..."
+    
+    if [ ! -f docker-compose.yml ] || [ ! -f .env ]; then
+        log_error "No existing deployment found. Please run a full deployment first."
+        exit 1
+    fi
+    
+    # Get domain from existing .env file
+    DOMAIN=$(grep "NEXTAUTH_URL=" .env | cut -d'=' -f2 | sed 's|https\?://||')
+    
+    if [ -z "$DOMAIN" ]; then
+        log_error "Could not determine domain from existing configuration"
+        exit 1
+    fi
+    
+    # Ask for email
+    read -p "Enter your email for Let's Encrypt notifications: " EMAIL
+    
+    ENABLE_SSL="true"
+    
+    # Install certbot
+    install_certbot
+    
+    # Obtain certificate
+    obtain_ssl_certificate
+    
+    # Recreate configurations with SSL
+    create_docker_compose
+    create_nginx_config
+    generate_secrets
+    
+    # Restart services
+    $DOCKER_COMPOSE_CMD down
+    $DOCKER_COMPOSE_CMD up -d
+    
+    setup_ssl_renewal
+    
+    log_success "🎉 SSL has been added to your Usufruit deployment!"
+    log_info "Your library management system is now available at: https://${DOMAIN}"
+}
+
 # Main deployment function
 main() {
     log_info "Starting Usufruit deployment..."
+    
+    # Check for special flags
+    if [[ "$1" == "--add-ssl" ]]; then
+        add_ssl_to_existing
+        exit 0
+    fi
     
     # Check if this appears to be a re-run
     if [ -f docker-compose.yml ] && [ -f .env ]; then
@@ -715,6 +1047,11 @@ main() {
     # Set up Docker Compose command after Docker installation
     DOCKER_COMPOSE_CMD=$(get_docker_compose_cmd)
     log_info "Using Docker Compose command: $DOCKER_COMPOSE_CMD"
+    
+    # Install certbot if SSL is enabled
+    if [ "$ENABLE_SSL" = "true" ]; then
+        install_certbot
+    fi
     
     create_dockerfile
     create_docker_compose
@@ -777,6 +1114,18 @@ main() {
     
     log_success "Database schema synchronized successfully!"
     
+    # Setup SSL if enabled
+    if [ "$ENABLE_SSL" = "true" ]; then
+        log_info "Setting up SSL certificates..."
+        obtain_ssl_certificate
+        
+        # Recreate nginx config with SSL and restart
+        create_nginx_config
+        $DOCKER_COMPOSE_CMD restart nginx
+        
+        setup_ssl_renewal
+    fi
+    
     # Start all services
     if ! $DOCKER_COMPOSE_CMD up -d; then
         log_error "Failed to start all services"
@@ -785,17 +1134,31 @@ main() {
     
     log_success "🎉 Usufruit deployment completed successfully!"
     echo
-    log_info "Your library management system is now available at: http://${DOMAIN}"
+    if [ "$ENABLE_SSL" = "true" ]; then
+        log_info "Your library management system is now available at: https://${DOMAIN}"
+        log_success "SSL certificate installed and auto-renewal configured!"
+    else
+        log_info "Your library management system is now available at: http://${DOMAIN}"
+        log_info "To add SSL later, run: sudo ./deploy.sh --add-ssl"
+    fi
     log_info "Management commands:"
-    log_info "  ./start.sh     - Start the system"
-    log_info "  ./update.sh    - Update to latest version"
-    log_info "  ./backup.sh    - Create database backup"
-    log_info "  ./monitor.sh   - Check system status"
+    log_info "  ./start.sh      - Start the system"
+    log_info "  ./update.sh     - Update to latest version"
+    log_info "  ./backup.sh     - Create database backup"
+    log_info "  ./monitor.sh    - Check system status"
+    if [ "$ENABLE_SSL" = "true" ]; then
+        log_info "  ./renew_ssl.sh  - Manually renew SSL certificates"
+    else
+        log_info "  sudo ./deploy.sh --add-ssl - Add SSL to existing deployment"
+    fi
     echo
     log_warning "Don't forget to:"
     log_warning "  1. Set up your first super librarian account"
     log_warning "  2. Configure your library details"
     log_warning "  3. Test the backup and restore process"
+    if [ "$ENABLE_SSL" = "true" ]; then
+        log_warning "  4. SSL certificates will auto-renew (check logs periodically)"
+    fi
 }
 
 # Run main function
