@@ -756,6 +756,9 @@ install_certbot() {
 obtain_ssl_certificate() {
     log_info "Obtaining SSL certificate from Let's Encrypt..."
     
+    # Get Docker Compose command
+    local DOCKER_COMPOSE=$(get_docker_compose_cmd)
+    
     # Create directory for webroot challenge
     mkdir -p /var/www/certbot
     
@@ -767,7 +770,7 @@ obtain_ssl_certificate() {
     
     # Start nginx temporarily to serve the challenge
     log_info "Starting nginx temporarily for certificate validation..."
-    $DOCKER_COMPOSE_CMD up -d nginx
+    $DOCKER_COMPOSE up -d nginx
     
     # Wait for nginx to be ready
     sleep 5
@@ -979,6 +982,9 @@ EOF
 add_ssl_to_existing() {
     log_info "Adding SSL to existing Usufruit deployment..."
     
+    # Get Docker Compose command
+    local DOCKER_COMPOSE=$(get_docker_compose_cmd)
+    
     if [ ! -f docker-compose.yml ] || [ ! -f .env ]; then
         log_error "No existing deployment found. Please run a full deployment first."
         exit 1
@@ -1009,8 +1015,8 @@ add_ssl_to_existing() {
     generate_secrets
     
     # Restart services
-    $DOCKER_COMPOSE_CMD down
-    $DOCKER_COMPOSE_CMD up -d
+    $DOCKER_COMPOSE down
+    $DOCKER_COMPOSE up -d
     
     setup_ssl_renewal
     
