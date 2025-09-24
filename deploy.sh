@@ -234,15 +234,13 @@ COPY models/package*.json ./models/
 # Install dependencies with optimizations
 RUN npm ci --only=production --no-audit --no-fund --silent
 
-# Copy NX and TypeScript configuration files
+# Copy NX configuration files
 COPY nx.json ./
 COPY tsconfig.base.json ./
-COPY tsconfig.json ./
-COPY jest.config.ts ./
-COPY jest.preset.js ./
+COPY .eslintrc.json ./
 
-# Copy ESLint configuration (newer format)
-COPY eslint.config.mjs ./
+# Copy workspace configuration
+COPY workspace.json ./
 
 # Copy source code
 COPY apps/ ./apps/
@@ -266,6 +264,9 @@ RUN echo "=== Building Next.js app with NX ===" && \
 FROM node:18-alpine AS runner
 
 WORKDIR /app
+
+# Install dumb-init for proper process handling
+RUN apk add --no-cache dumb-init
 
 # Create non-root user
 RUN addgroup --system --gid 1001 nodejs && \
@@ -291,7 +292,8 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 ENV NODE_ENV=production
 
-# Standard Next.js startup
+# Use dumb-init for proper signal handling and process cleanup
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["npx", "next", "start"]
 EOF
 
