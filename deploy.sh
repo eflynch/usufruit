@@ -767,36 +767,15 @@ main() {
         $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate reset --force --skip-seed || true
     fi
     
-    # Check if migrations directory exists
-    if ! $DOCKER_COMPOSE_CMD run --rm app test -d prisma/migrations; then
-        log_info "No migrations found, creating initial migration..."
-        
-        # For first-time setup, use db push to avoid migration drift issues
-        log_info "Using db push for initial schema setup..."
-        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma db push --force-reset; then
-            log_error "Failed to set up initial database schema"
-            exit 1
-        fi
-        
-        # Now create the initial migration to match the pushed schema
-        log_info "Creating migration to match current schema..."
-        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate dev --name init --skip-seed --create-only; then
-            log_error "Failed to create initial migration file"
-            exit 1
-        fi
-        
-        # Mark the migration as applied
-        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate resolve --applied init; then
-            log_error "Failed to mark migration as applied"
-            exit 1
-        fi
-    else
-        log_info "Running existing migrations..."
-        if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma migrate deploy; then
-            log_error "Database migrations failed"
-            exit 1
-        fi
+    # For initial deployment, just use db push to get the schema in place
+    # This avoids migration complexity for the first deployment
+    log_info "Syncing database schema..."
+    if ! $DOCKER_COMPOSE_CMD run --rm app npx prisma db push --accept-data-loss; then
+        log_error "Failed to sync database schema"
+        exit 1
     fi
+    
+    log_success "Database schema synchronized successfully!"
     
     # Start all services
     if ! $DOCKER_COMPOSE_CMD up -d; then
