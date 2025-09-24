@@ -801,6 +801,9 @@ obtain_ssl_certificate() {
         
         log_success "SSL certificate obtained successfully!"
         
+        # Re-enable SSL now that we have the certificate
+        ENABLE_SSL="true"
+        
         # Create certificate volume for Docker
         log_info "Setting up certificate volume..."
         docker volume create ${PROJECT_NAME}_certbot_certs 2>/dev/null || true
@@ -1019,7 +1022,14 @@ add_ssl_to_existing() {
     install_certbot
     
     # Obtain certificate
-    obtain_ssl_certificate
+    if obtain_ssl_certificate; then
+        # Ensure SSL is enabled for config recreation
+        ENABLE_SSL="true"
+        log_info "Certificate obtained, enabling SSL configuration..."
+    else
+        log_error "Failed to obtain SSL certificate, aborting SSL setup"
+        return 1
+    fi
     
     # Recreate configurations with SSL
     create_docker_compose
