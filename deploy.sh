@@ -164,8 +164,7 @@ create_docker_compose() {
     # Determine the NEXTAUTH_URL based on SSL setting
     if [ "$ENABLE_SSL" = "true" ]; then
         NEXTAUTH_URL="https://${DOMAIN}"
-        SSL_VOLUMES="      - certbot_certs:/etc/letsencrypt:ro
-      - certbot_www:/var/www/certbot:ro"
+        SSL_VOLUMES="      - certbot_certs:/etc/letsencrypt:ro"
         SSL_PORTS="      - \"443:443\""
     else
         NEXTAUTH_URL="http://${DOMAIN}"
@@ -211,6 +210,7 @@ services:
 ${SSL_PORTS}
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /var/www/certbot:/var/www/certbot:ro
 ${SSL_VOLUMES}
     depends_on:
       - app
@@ -220,8 +220,7 @@ ${SSL_VOLUMES}
 
 volumes:
   postgres_data:$([ "$ENABLE_SSL" = "true" ] && echo "
-  certbot_certs:
-  certbot_www:")
+  certbot_certs:")
 
 networks:
   app-network:
@@ -718,7 +717,7 @@ $DOCKER_COMPOSE logs --tail=20
 
 echo
 echo "SSL Certificate Status:"
-if docker volume ls | grep -q certbot_certs; then
+if docker volume ls | grep -q "certbot_certs"; then
     if $DOCKER_COMPOSE exec -T nginx test -f /etc/letsencrypt/live/*/cert.pem 2>/dev/null; then
         $DOCKER_COMPOSE exec -T nginx openssl x509 -in /etc/letsencrypt/live/*/cert.pem -text -noout | grep -E "(Not After|Subject:)" || echo "SSL certificate files found but could not read details"
     else
@@ -761,6 +760,7 @@ obtain_ssl_certificate() {
     
     # Create directory for webroot challenge
     mkdir -p /var/www/certbot
+    chmod 755 /var/www/certbot
     
     # Check if certificate already exists
     if [ -d "/etc/letsencrypt/live/${DOMAIN}" ]; then
@@ -768,12 +768,23 @@ obtain_ssl_certificate() {
         return 0
     fi
     
-    # Start nginx temporarily to serve the challenge
-    log_info "Starting nginx temporarily for certificate validation..."
+    # Make sure we have HTTP-only configuration first
+    log_info "Creating temporary HTTP-only nginx configuration for certificate validation..."
+    ENABLE_SSL="false"
+    create_nginx_config
+    
+    # Start nginx to serve the challenge
+    log_info "Starting nginx for certificate validation..."
     $DOCKER_COMPOSE up -d nginx
     
-    # Wait for nginx to be ready
-    sleep 5
+    # Wait for nginx to be ready and test it
+    log_info "Waiting for nginx to be ready..."
+    sleep 10
+    
+    # Test that nginx is serving correctly
+    if ! curl -s "http://${DOMAIN}/.well-known/acme-challenge/test" | grep -q "404"; then
+        log_warning "Nginx might not be serving challenge files correctly, but continuing..."
+    fi
     
     # Obtain certificate using webroot method
     if certbot certonly \
@@ -787,14 +798,12 @@ obtain_ssl_certificate() {
         
         log_success "SSL certificate obtained successfully!"
         
-        # Copy certificates to Docker volumes
-        log_info "Setting up certificate volumes..."
-        docker volume create usufruit_certbot_certs
-        docker volume create usufruit_certbot_www
+        # Create certificate volume for Docker
+        log_info "Setting up certificate volume..."
+        docker volume create ${PROJECT_NAME}_certbot_certs 2>/dev/null || true
         
         # Copy certificates to volume
-        docker run --rm -v /etc/letsencrypt:/src:ro -v usufruit_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
-        docker run --rm -v /var/www/certbot:/src:ro -v usufruit_certbot_www:/dest alpine sh -c "cp -r /src/* /dest/"
+        docker run --rm -v /etc/letsencrypt:/src:ro -v ${PROJECT_NAME}_certbot_certs:/dest alpine sh -c "cp -r /src/* /dest/"
         
     else
         log_error "Failed to obtain SSL certificate"
