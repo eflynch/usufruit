@@ -1005,12 +1005,25 @@ add_ssl_to_existing() {
         exit 1
     fi
     
-    # Get domain from existing .env file
+    # Get existing configuration from .env file
     DOMAIN=$(grep "NEXTAUTH_URL=" .env | cut -d'=' -f2 | sed 's|https\?://||')
     
     if [ -z "$DOMAIN" ]; then
         log_error "Could not determine domain from existing configuration"
         exit 1
+    fi
+    
+    # Extract database password from existing DATABASE_URL
+    DB_PASSWORD=$(grep "DATABASE_URL=" .env | sed 's/.*:\/\/usufruit:\([^@]*\)@.*/\1/')
+    
+    if [ -z "$DB_PASSWORD" ]; then
+        log_warning "Database password missing from existing configuration"
+        read -s -p "Enter the database password: " DB_PASSWORD
+        echo
+        if [ -z "$DB_PASSWORD" ]; then
+            log_error "Database password is required"
+            exit 1
+        fi
     fi
     
     # Ask for email
