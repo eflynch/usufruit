@@ -396,9 +396,18 @@ http {
         listen 80;
         server_name ${DOMAIN};
         
-        # Let's Encrypt challenge location (for future SSL setup)
-        location /.well-known/acme-challenge/ {
+        # Let's Encrypt challenge location - MUST be before other locations
+        location ^~ /.well-known/acme-challenge/ {
             root /var/www/certbot;
+            try_files \$uri \$uri/ =404;
+            allow all;
+        }
+        
+        # Static file caching - specific paths first
+        location /_next/static/ {
+            proxy_pass http://app;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
         }
         
         # Gzip compression
@@ -410,6 +419,7 @@ http {
         # Client max body size (for file uploads)
         client_max_body_size 10M;
         
+        # General proxy - MUST be last
         location / {
             proxy_pass http://app;
             proxy_http_version 1.1;
@@ -423,13 +433,6 @@ http {
             
             # Rate limiting
             limit_req zone=api burst=20 nodelay;
-        }
-
-        # Static file caching
-        location /_next/static/ {
-            proxy_pass http://app;
-            expires 1y;
-            add_header Cache-Control "public, immutable";
         }
     }
 }
