@@ -141,3 +141,92 @@ export async function PATCH(
     );
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { libraryId: string; librarianId: string } }
+) {
+  try {
+    const { libraryId, librarianId } = await params;
+    const { searchParams } = request.nextUrl;
+    
+    // Require authorization for deleting librarians
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authorization required to delete librarians' },
+        { status: 401 }
+      );
+    }
+
+    const secretKey = authHeader.substring(7);
+    const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+    
+    if (!authenticatedLibrarian || authenticatedLibrarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Invalid authorization' },
+        { status: 403 }
+      );
+    }
+
+    // Only super librarians can delete other librarians
+    if (!authenticatedLibrarian.isSuper) {
+      return NextResponse.json(
+        { error: 'Only super librarians can delete librarians' },
+        { status: 403 }
+      );
+    }
+
+    // Prevent deleting yourself
+    if (authenticatedLibrarian.id === librarianId) {
+      return NextResponse.json(
+        { error: 'You cannot delete yourself' },
+        { status: 400 }
+      );
+    }
+    
+    const librarian = await DatabaseService.getLibrarianById(librarianId);
+    
+    if (!librarian) {
+      return NextResponse.json(
+        { error: 'Librarian not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify librarian belongs to this library
+    if (librarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Librarian not found in this library' },
+        { status: 404 }
+      );
+    }
+
+    // Get options from query parameters
+    const reassignBooksTo = searchParams.get('reassignBooksTo');
+    const deleteBooksAndLoans = searchParams.get('deleteBooksAndLoans') === 'true';
+
+    const deleteOptions: { reassignBooksTo?: string; deleteBooksAndLoans?: boolean } = {};
+    
+    if (reassignBooksTo) {
+      deleteOptions.reassignBooksTo = reassignBooksTo;
+    }
+    
+    if (deleteBooksAndLoans) {
+      deleteOptions.deleteBooksAndLoans = true;
+    }
+
+    const deletedLibrarian = await DatabaseService.deleteLibrarian(librarianId, deleteOptions);
+    
+    return NextResponse.json({ 
+      message: 'Librarian deleted successfully',
+      librarian: deletedLibrarian 
+    });
+  } catch (error) {
+    console.error('Error deleting librarian:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to delete librarian' },
+      { status: 500 }
+    );
+  }
+}

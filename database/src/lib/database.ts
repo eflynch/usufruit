@@ -321,6 +321,74 @@ export class DatabaseService {
     });
   }
 
+  static async deleteLibrarian(id: string, options: { 
+    reassignBooksTo?: string;
+    deleteBooksAndLoans?: boolean;
+  } = {}) {
+    return prisma.$transaction(async (tx) => {
+      const { reassignBooksTo, deleteBooksAndLoans = false } = options;
+
+      // Get the librarian first to validate they exist
+      const librarian = await tx.librarian.findUnique({
+        where: { id },
+        include: { books: true, loans: true },
+      });
+
+      if (!librarian) {
+        throw new Error('Librarian not found');
+      }
+
+      if (deleteBooksAndLoans) {
+        // Delete all loans for books owned by this librarian
+        await tx.loan.deleteMany({
+          where: { book: { librarianId: id } },
+        });
+
+        // Delete all books owned by this librarian
+        await tx.book.deleteMany({
+          where: { librarianId: id },
+        });
+
+        // Delete loans made by this librarian (not covered above)
+        await tx.loan.deleteMany({
+          where: { librarianId: id },
+        });
+      } else if (reassignBooksTo) {
+        // Verify the target librarian exists and is in the same library
+        const targetLibrarian = await tx.librarian.findUnique({
+          where: { id: reassignBooksTo },
+        });
+
+        if (!targetLibrarian || targetLibrarian.libraryId !== librarian.libraryId) {
+          throw new Error('Target librarian not found or not in the same library');
+        }
+
+        // Reassign all books to the target librarian
+        await tx.book.updateMany({
+          where: { librarianId: id },
+          data: { librarianId: reassignBooksTo },
+        });
+
+        // Reassign all loans to the target librarian
+        await tx.loan.updateMany({
+          where: { librarianId: id },
+          data: { librarianId: reassignBooksTo },
+        });
+      } else if (librarian.books.length > 0 || librarian.loans.length > 0) {
+        // If librarian has books or loans and no handling option specified, throw error
+        throw new Error('Cannot delete librarian with existing books or loans. Please specify reassignBooksTo or deleteBooksAndLoans option.');
+      }
+
+      // Finally, delete the librarian
+      return tx.librarian.delete({
+        where: { id },
+        include: {
+          library: true,
+        },
+      });
+    });
+  }
+
   // Book operations
   static async createBook(data: {
     title: string;
@@ -468,6 +536,25 @@ export class DatabaseService {
         librarian: true,
         loans: true,
       },
+    });
+  }
+
+  static async deleteBook(id: string) {
+    // Use a transaction to ensure all related data is deleted together
+    return prisma.$transaction(async (tx) => {
+      // First delete all loans associated with this book
+      await tx.loan.deleteMany({
+        where: { bookId: id },
+      });
+
+      // Then delete the book itself
+      return tx.book.delete({
+        where: { id },
+        include: {
+          library: true,
+          librarian: true,
+        },
+      });
     });
   }
 

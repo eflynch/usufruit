@@ -18,6 +18,11 @@ export default function EditLibrarianPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteOption, setDeleteOption] = useState<'reassign' | 'deleteAll'>('reassign');
+  const [reassignTo, setReassignTo] = useState('');
+  const [availableLibrarians, setAvailableLibrarians] = useState<Librarian[]>([]);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -51,6 +56,23 @@ export default function EditLibrarianPage() {
           name: librarianData.name || '',
           contactInfo: librarianData.contactInfo || ''
         });
+
+        // Fetch all librarians for reassignment option (only if user is super)
+        if (auth?.isSuper) {
+          const librariansResponse = await fetch(`/api/libraries/${libraryId}/librarians`, {
+            headers: authHeaders,
+          });
+          
+          if (librariansResponse.ok) {
+            const allLibrarians = await librariansResponse.json();
+            // Filter out the current librarian
+            const others = allLibrarians.filter((l: Librarian) => l.id !== librarianId);
+            setAvailableLibrarians(others);
+            if (others.length > 0) {
+              setReassignTo(others[0].id);
+            }
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
@@ -59,7 +81,7 @@ export default function EditLibrarianPage() {
     };
 
     fetchLibrarian();
-  }, [libraryId, librarianId, authHeaders]);
+  }, [libraryId, librarianId, authHeaders, auth?.isSuper]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,6 +125,47 @@ export default function EditLibrarianPage() {
       ...prev,
       [field]: value
     }));
+  };
+
+  const handleDelete = async () => {
+    if (!auth?.isSuper) {
+      setSaveMessage('Error: Only super librarians can delete librarians');
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      setSaveMessage(null);
+
+      const queryParams = new URLSearchParams();
+      if (deleteOption === 'reassign' && reassignTo) {
+        queryParams.append('reassignBooksTo', reassignTo);
+      } else if (deleteOption === 'deleteAll') {
+        queryParams.append('deleteBooksAndLoans', 'true');
+      }
+
+      const url = `/api/libraries/${libraryId}/librarians/${librarianId}${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: authHeaders
+      });
+
+      if (response.ok) {
+        setSaveMessage('Librarian deleted successfully! Redirecting...');
+        setTimeout(() => {
+          router.push(`/libraries/${libraryId}`);
+        }, 1500);
+      } else {
+        const errorData = await response.json();
+        setSaveMessage(`Error: ${errorData.error || 'Failed to delete librarian'}`);
+      }
+    } catch {
+      setSaveMessage('Error: Failed to delete librarian');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   if (loading) {
@@ -249,7 +312,7 @@ export default function EditLibrarianPage() {
         <div style={{ marginBottom: '20px' }}>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || deleting}
             style={{
               padding: '8px 16px',
               background: saving ? '#ccc' : '#007bff',
@@ -263,6 +326,119 @@ export default function EditLibrarianPage() {
           >
             {saving ? 'saving...' : 'save changes'}
           </button>
+
+          {/* Only show delete button for super librarians and not editing self */}
+          {auth?.isSuper && !isEditingSelf && (
+            !showDeleteConfirm ? (
+              <button
+                type="button"
+                disabled={saving || deleting}
+                onClick={() => setShowDeleteConfirm(true)}
+                style={{
+                  padding: '8px 16px',
+                  background: '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  cursor: (saving || deleting) ? 'not-allowed' : 'pointer',
+                  fontSize: '14px',
+                  fontFamily: 'inherit',
+                  marginRight: '10px'
+                }}
+              >
+                delete librarian
+              </button>
+            ) : (
+              <div style={{ display: 'inline-block', marginRight: '10px' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <span style={{ color: '#dc3545', fontSize: '14px', fontWeight: 'bold' }}>
+                    Delete Librarian - Choose Option:
+                  </span>
+                </div>
+                
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ fontSize: '12px', marginRight: '15px' }}>
+                    <input
+                      type="radio"
+                      name="deleteOption"
+                      value="reassign"
+                      checked={deleteOption === 'reassign'}
+                      onChange={(e) => setDeleteOption(e.target.value as 'reassign')}
+                      style={{ marginRight: '5px' }}
+                    />
+                    Reassign books/loans to:
+                  </label>
+                  
+                  {deleteOption === 'reassign' && (
+                    <select
+                      value={reassignTo}
+                      onChange={(e) => setReassignTo(e.target.value)}
+                      style={{
+                        fontSize: '12px',
+                        padding: '2px 4px',
+                        marginRight: '10px'
+                      }}
+                    >
+                      {availableLibrarians.map(lib => (
+                        <option key={lib.id} value={lib.id}>
+                          {lib.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: '10px' }}>
+                  <label style={{ fontSize: '12px' }}>
+                    <input
+                      type="radio"
+                      name="deleteOption"
+                      value="deleteAll"
+                      checked={deleteOption === 'deleteAll'}
+                      onChange={(e) => setDeleteOption(e.target.value as 'deleteAll')}
+                      style={{ marginRight: '5px' }}
+                    />
+                    Delete all books and loans permanently
+                  </label>
+                </div>
+
+                <div>
+                  <button
+                    type="button"
+                    disabled={deleting || (deleteOption === 'reassign' && (!reassignTo || availableLibrarians.length === 0))}
+                    onClick={handleDelete}
+                    style={{
+                      padding: '6px 12px',
+                      background: deleting ? '#ccc' : '#dc3545',
+                      color: 'white',
+                      border: 'none',
+                      cursor: deleting ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontFamily: 'inherit',
+                      marginRight: '5px'
+                    }}
+                  >
+                    {deleting ? 'deleting...' : 'confirm delete'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={() => setShowDeleteConfirm(false)}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      cursor: deleting ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontFamily: 'inherit'
+                    }}
+                  >
+                    cancel
+                  </button>
+                </div>
+              </div>
+            )
+          )}
           
           <Link href={`/libraries/${libraryId}`} style={{ 
             color: '#666',

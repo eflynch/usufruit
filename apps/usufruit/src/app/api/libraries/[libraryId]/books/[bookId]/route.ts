@@ -99,3 +99,68 @@ export async function PUT(
     );
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { libraryId: string; bookId: string } }
+) {
+  try {
+    const { libraryId, bookId } = await params;
+    
+    // Require authorization for deleting books
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json(
+        { error: 'Authorization required to delete books' },
+        { status: 401 }
+      );
+    }
+
+    const secretKey = authHeader.substring(7);
+    const authenticatedLibrarian = await DatabaseService.authenticateLibrarian(secretKey);
+    
+    if (!authenticatedLibrarian || authenticatedLibrarian.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Invalid authorization' },
+        { status: 403 }
+      );
+    }
+    
+    const book = await DatabaseService.getBookById(bookId);
+    
+    if (!book) {
+      return NextResponse.json(
+        { error: 'Book not found' },
+        { status: 404 }
+      );
+    }
+
+    // Verify book belongs to this library
+    if (book.libraryId !== libraryId) {
+      return NextResponse.json(
+        { error: 'Book not found in this library' },
+        { status: 404 }
+      );
+    }
+
+    // Only super librarians or the book owner can delete books
+    if (!authenticatedLibrarian.isSuper && authenticatedLibrarian.id !== book.librarianId) {
+      return NextResponse.json(
+        { error: 'You can only delete your own books, or be a super librarian' },
+        { status: 403 }
+      );
+    }
+
+    const deletedBook = await DatabaseService.deleteBook(bookId);
+    return NextResponse.json({ 
+      message: 'Book deleted successfully',
+      book: deletedBook 
+    });
+  } catch (error) {
+    console.error('Error deleting book:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete book' },
+      { status: 500 }
+    );
+  }
+}

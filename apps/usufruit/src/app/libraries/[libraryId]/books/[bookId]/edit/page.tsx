@@ -19,6 +19,8 @@ export default function EditBookPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -121,6 +123,38 @@ export default function EditBookPage() {
       ...prev,
       [field]: field === 'borrowDurationDays' ? parseInt(value) || 1 : value
     }));
+  };
+
+  const handleDelete = async () => {
+    if (!isAuthenticated) {
+      setSaveMessage('Error: You must be logged in to delete books');
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      setSaveMessage(null);
+
+      const response = await fetch(`/api/libraries/${libraryId}/books/${bookId}`, {
+        method: 'DELETE',
+        headers: authHeaders
+      });
+
+      if (response.ok) {
+        setSaveMessage('Book deleted successfully! Redirecting...');
+        setTimeout(() => {
+          router.push(`/libraries/${libraryId}`);
+        }, 1500);
+      } else {
+        const errorData = await response.json();
+        setSaveMessage(`Error: ${errorData.error || 'Failed to delete book'}`);
+      }
+    } catch {
+      setSaveMessage('Error: Failed to delete book');
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
   };
 
   if (loading) {
@@ -387,7 +421,7 @@ export default function EditBookPage() {
         <div style={{ marginBottom: '20px' }}>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || deleting}
             style={{
               padding: '8px 16px',
               background: saving ? '#ccc' : '#007bff',
@@ -401,6 +435,69 @@ export default function EditBookPage() {
           >
             {saving ? 'saving...' : 'save changes'}
           </button>
+          
+          {!showDeleteConfirm ? (
+            <button
+              type="button"
+              disabled={saving || deleting}
+              onClick={() => setShowDeleteConfirm(true)}
+              style={{
+                padding: '8px 16px',
+                background: '#dc3545',
+                color: 'white',
+                border: 'none',
+                cursor: (saving || deleting) ? 'not-allowed' : 'pointer',
+                fontSize: '14px',
+                fontFamily: 'inherit',
+                marginRight: '10px'
+              }}
+            >
+              delete book
+            </button>
+          ) : (
+            <div style={{ display: 'inline-block', marginRight: '10px' }}>
+              <span style={{ 
+                color: '#dc3545', 
+                fontSize: '14px', 
+                marginRight: '8px' 
+              }}>
+                Are you sure?
+              </span>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={handleDelete}
+                style={{
+                  padding: '6px 12px',
+                  background: deleting ? '#ccc' : '#dc3545',
+                  color: 'white',
+                  border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontFamily: 'inherit',
+                  marginRight: '5px'
+                }}
+              >
+                {deleting ? 'deleting...' : 'yes, delete'}
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setShowDeleteConfirm(false)}
+                style={{
+                  padding: '6px 12px',
+                  background: '#6c757d',
+                  color: 'white',
+                  border: 'none',
+                  cursor: deleting ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontFamily: 'inherit'
+                }}
+              >
+                cancel
+              </button>
+            </div>
+          )}
           
           <Link href={`/libraries/${libraryId}/books/${bookId}`} style={{ 
             color: '#666',
