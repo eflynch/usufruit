@@ -24,8 +24,6 @@ export default function LibraryPage() {
   const [promotingLibrarianId, setPromotingLibrarianId] = useState<string | null>(null);
 
   // Pagination and search state
-  const [booksPage, setBooksPage] = useState(1);
-  const [librariansPage, setLibrariansPage] = useState(1);
   const [booksSearch, setBooksSearch] = useState('');
   const [librariansSearch, setLibrariansSearch] = useState('');
   const [booksPagination, setBooksPagination] = useState<PaginationInfo | null>(null);
@@ -129,24 +127,20 @@ export default function LibraryPage() {
   // Handle search changes
   const handleBooksSearch = useCallback((query: string) => {
     setBooksSearch(query);
-    setBooksPage(1);
     fetchBooks(1, query);
   }, [fetchBooks]);
 
   const handleLibrariansSearch = useCallback((query: string) => {
     setLibrariansSearch(query);
-    setLibrariansPage(1);
     fetchLibrarians(1, query);
   }, [fetchLibrarians]);
 
   // Handle page changes
   const handleBooksPageChange = useCallback((page: number) => {
-    setBooksPage(page);
     fetchBooks(page, booksSearch);
   }, [fetchBooks, booksSearch]);
 
   const handleLibrariansPageChange = useCallback((page: number) => {
-    setLibrariansPage(page);
     fetchLibrarians(page, librariansSearch);
   }, [fetchLibrarians, librariansSearch]);
 
