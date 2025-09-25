@@ -632,7 +632,7 @@ create_update_script() {
     cat > update.sh << 'EOF'
 #!/bin/bash
 
-# Usufruit update script
+# Usufruit update script with memory management
 set -e
 
 log_info() {
@@ -641,6 +641,10 @@ log_info() {
 
 log_success() {
     echo -e "\033[0;32m[SUCCESS]\033[0m $1"
+}
+
+log_warning() {
+    echo -e "\033[1;33m[WARNING]\033[0m $1"
 }
 
 log_info "Updating Usufruit Library Management System..."
@@ -655,7 +659,17 @@ else
     exit 1
 fi
 
+# Show current Docker usage
+log_info "Current Docker usage:"
+docker system df
+
+# Clean up before building to prevent memory issues
+log_info "Cleaning up Docker artifacts to free memory..."
+docker image prune -f
+docker builder prune -f
+
 # Pull latest changes
+log_info "Pulling latest changes..."
 git pull origin main
 
 # Rebuild and restart services
@@ -667,6 +681,14 @@ $DOCKER_COMPOSE run --rm app npx prisma migrate deploy
 
 log_info "Restarting services..."
 $DOCKER_COMPOSE up -d
+
+# Final cleanup to prevent accumulation
+log_info "Final cleanup..."
+docker image prune -f
+
+# Show final usage
+log_info "Final Docker usage:"
+docker system df
 
 log_success "Usufruit has been updated successfully!"
 EOF
