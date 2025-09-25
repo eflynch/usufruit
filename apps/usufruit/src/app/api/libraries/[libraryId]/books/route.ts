@@ -7,6 +7,7 @@ export async function GET(
 ) {
   try {
     const { libraryId } = await params;
+    const { searchParams } = request.nextUrl;
     
     // No authorization required - any librarian can view all books
     
@@ -19,8 +20,26 @@ export async function GET(
       );
     }
 
-    const books = await DatabaseService.getBooksByLibraryId(libraryId);
-    return NextResponse.json(books);
+    // Check if pagination/search parameters are provided
+    const page = searchParams.get('page');
+    const limit = searchParams.get('limit');
+    const search = searchParams.get('search');
+
+    if (page || limit || search) {
+      // Use paginated method
+      const options = {
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? Math.min(parseInt(limit, 10), 100) : undefined, // Cap at 100
+        search: search || undefined,
+      };
+
+      const result = await DatabaseService.getBooksByLibraryIdPaginated(libraryId, options);
+      return NextResponse.json(result);
+    } else {
+      // Use original method for backward compatibility
+      const books = await DatabaseService.getBooksByLibraryId(libraryId);
+      return NextResponse.json(books);
+    }
   } catch (error) {
     console.error('Error fetching books:', error);
     return NextResponse.json(

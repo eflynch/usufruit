@@ -7,10 +7,11 @@ export async function GET(
 ) {
   try {
     const { libraryId } = await params;
+    const { searchParams } = request.nextUrl;
     
     // Get requesting librarian from Authorization header or query param
     const authHeader = request.headers.get('authorization');
-    const requestingLibrarianId = request.nextUrl.searchParams.get('requestingLibrarianId');
+    const requestingLibrarianId = searchParams.get('requestingLibrarianId');
     
     let authenticatedLibrarianId: string | undefined;
     
@@ -38,8 +39,30 @@ export async function GET(
       );
     }
 
-    const librarians = await DatabaseService.getLibrariansByLibraryIdSecure(libraryId, authenticatedLibrarianId);
-    return NextResponse.json(librarians);
+    // Check if pagination/search parameters are provided
+    const page = searchParams.get('page');
+    const limit = searchParams.get('limit');
+    const search = searchParams.get('search');
+
+    if (page || limit || search) {
+      // Use paginated method
+      const options = {
+        page: page ? parseInt(page, 10) : undefined,
+        limit: limit ? Math.min(parseInt(limit, 10), 100) : undefined, // Cap at 100
+        search: search || undefined,
+      };
+
+      const result = await DatabaseService.getLibrariansByLibraryIdSecurePaginated(
+        libraryId, 
+        authenticatedLibrarianId, 
+        options
+      );
+      return NextResponse.json(result);
+    } else {
+      // Use original method for backward compatibility
+      const librarians = await DatabaseService.getLibrariansByLibraryIdSecure(libraryId, authenticatedLibrarianId);
+      return NextResponse.json(librarians);
+    }
   } catch (error) {
     console.error('Error fetching librarians:', error);
     return NextResponse.json(

@@ -179,6 +179,92 @@ export class DatabaseService {
     }
   }
 
+  static async getLibrariansByLibraryIdSecurePaginated(
+    libraryId: string,
+    requestingLibrarianId?: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+    } = {}
+  ) {
+    const { page = 1, limit = 50, search } = options;
+    const skip = (page - 1) * limit;
+
+    // Build search condition - handle both PostgreSQL and SQLite
+    // SQLite doesn't support mode: 'insensitive', but PostgreSQL does
+    const isPostgreSQL = process.env.DATABASE_URL?.includes('postgresql') || process.env.DATABASE_URL?.includes('postgres');
+    
+    const searchCondition = search
+      ? {
+          name: { contains: search, ...(isPostgreSQL && { mode: 'insensitive' as const }) },
+        }
+      : {};
+
+    const where = {
+      libraryId,
+      ...searchCondition,
+    };
+
+    // Get total count for pagination metadata
+    const totalCount = await prisma.librarian.count({ where });
+
+    // Get paginated results
+    const librarians = await prisma.librarian.findMany({
+      where,
+      include: {
+        library: true,
+        books: true,
+      },
+      skip,
+      take: limit,
+      orderBy: { name: 'asc' },
+    });
+
+    // Apply security filtering to results
+    let filteredLibrarians;
+    if (!requestingLibrarianId) {
+      // Remove secret keys from all librarians
+      filteredLibrarians = librarians.map(librarian => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { secretKey, ...librarianWithoutSecret } = librarian;
+        return librarianWithoutSecret;
+      });
+    } else {
+      // Check if requesting librarian is super
+      const requestingLibrarian = await prisma.librarian.findUnique({
+        where: { id: requestingLibrarianId },
+      });
+
+      if (requestingLibrarian?.isSuper) {
+        // Super librarians can see all secret keys
+        filteredLibrarians = librarians;
+      } else {
+        // Regular librarians can only see their own secret key
+        filteredLibrarians = librarians.map(librarian => {
+          if (librarian.id === requestingLibrarianId) {
+            return librarian; // Show their own secret key
+          } else {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { secretKey, ...librarianWithoutSecret } = librarian;
+            return librarianWithoutSecret;
+          }
+        });
+      }
+    }
+
+    return {
+      librarians: filteredLibrarians,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNextPage: page < Math.ceil(totalCount / limit),
+        hasPreviousPage: page > 1,
+      },
+    };
+  }
+
   static async authenticateLibrarian(secretKey: string) {
     return prisma.librarian.findUnique({
       where: { secretKey },
@@ -283,6 +369,68 @@ export class DatabaseService {
         },
       },
     });
+  }
+
+  static async getBooksByLibraryIdPaginated(
+    libraryId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+    } = {}
+  ) {
+    const { page = 1, limit = 50, search } = options;
+    const skip = (page - 1) * limit;
+
+    // Build search condition - handle both PostgreSQL and SQLite
+    // SQLite doesn't support mode: 'insensitive', but PostgreSQL does
+    const isPostgreSQL = process.env.DATABASE_URL?.includes('postgresql') || process.env.DATABASE_URL?.includes('postgres');
+    
+    const searchCondition = search
+      ? {
+          OR: [
+            { title: { contains: search, ...(isPostgreSQL && { mode: 'insensitive' as const }) } },
+            { description: { contains: search, ...(isPostgreSQL && { mode: 'insensitive' as const }) } },
+            { author: { contains: search, ...(isPostgreSQL && { mode: 'insensitive' as const }) } },
+          ],
+        }
+      : {};
+
+    const where = {
+      libraryId,
+      ...searchCondition,
+    };
+
+    // Get total count for pagination metadata
+    const totalCount = await prisma.book.count({ where });
+
+    // Get paginated results
+    const books = await prisma.book.findMany({
+      where,
+      include: {
+        library: true,
+        librarian: true,
+        loans: {
+          where: {
+            returnedAt: null, // Only active loans
+          },
+        },
+      },
+      skip,
+      take: limit,
+      orderBy: { title: 'asc' },
+    });
+
+    return {
+      books,
+      pagination: {
+        currentPage: page,
+        totalPages: Math.ceil(totalCount / limit),
+        totalCount,
+        hasNextPage: page < Math.ceil(totalCount / limit),
+        hasPreviousPage: page > 1,
+      },
+    };
   }
 
   static async updateBook(id: string, data: {

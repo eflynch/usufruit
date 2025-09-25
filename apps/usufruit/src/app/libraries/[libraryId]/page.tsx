@@ -1,12 +1,15 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Library, Book, Librarian } from '@usufruit/models';
 import LibraryAuthStatus from '../../../components/LibraryAuthStatus';
 import { LibraryPageContainer, LibrarySectionDivider } from '../../../components/LibraryPageComponents';
+import SearchBar from '../../../components/SearchBar';
+import Pagination from '../../../components/Pagination';
 import { useLibraryAuth } from '../../../utils/auth-hooks';
+import { PaginatedBooksResponse, PaginatedLibrariansResponse, PaginationInfo } from '../../../types/pagination';
 
 export default function LibraryPage() {
   const params = useParams();
@@ -20,17 +23,27 @@ export default function LibraryPage() {
   const [activeTab, setActiveTab] = useState<'books' | 'librarians' | 'my-borrowed' | 'my-books'>('books');
   const [promotingLibrarianId, setPromotingLibrarianId] = useState<string | null>(null);
 
+  // Pagination and search state
+  const [booksPage, setBooksPage] = useState(1);
+  const [librariansPage, setLibrariansPage] = useState(1);
+  const [booksSearch, setBooksSearch] = useState('');
+  const [librariansSearch, setLibrariansSearch] = useState('');
+  const [booksPagination, setBooksPagination] = useState<PaginationInfo | null>(null);
+  const [librariansPagination, setLibrariansPagination] = useState<PaginationInfo | null>(null);
+  const [booksLoading, setBooksLoading] = useState(false);
+  const [librariansLoading, setLibrariansLoading] = useState(false);
+
   const { auth, isAuthenticated, authHeaders } = useLibraryAuth(libraryId);
 
+  // Fetch library details (separate from paginated data)
   useEffect(() => {
     if (!libraryId) return;
 
-    const fetchLibraryData = async () => {
+    const fetchLibraryDetails = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch library details
         const libraryResponse = await fetch(`/api/libraries/${libraryId}`);
         if (!libraryResponse.ok) {
           if (libraryResponse.status === 404) {
@@ -40,24 +53,6 @@ export default function LibraryPage() {
         }
         const libraryData = await libraryResponse.json();
         setLibrary(libraryData);
-
-        // Fetch books
-        const booksResponse = await fetch(`/api/libraries/${libraryId}/books`);
-        if (booksResponse.ok) {
-          const booksData = await booksResponse.json();
-          setBooks(booksData);
-        }
-
-        // Fetch librarians (only if authenticated)
-        if (isAuthenticated) {
-          const librariansResponse = await fetch(`/api/libraries/${libraryId}/librarians`, {
-            headers: authHeaders,
-          });
-          if (librariansResponse.ok) {
-            const librariansData = await librariansResponse.json();
-            setLibrarians(librariansData);
-          }
-        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
       } finally {
@@ -65,8 +60,95 @@ export default function LibraryPage() {
       }
     };
 
-    fetchLibraryData();
+    fetchLibraryDetails();
+  }, [libraryId]);
+
+  // Fetch books with pagination and search
+  const fetchBooks = useCallback(async (page = 1, search = '') => {
+    if (!libraryId) return;
+
+    setBooksLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '50',
+        ...(search && { search }),
+      });
+
+      const response = await fetch(`/api/libraries/${libraryId}/books?${params}`);
+      if (response.ok) {
+        const data: PaginatedBooksResponse = await response.json();
+        setBooks(data.books);
+        setBooksPagination(data.pagination);
+      }
+    } catch (err) {
+      console.error('Error fetching books:', err);
+    } finally {
+      setBooksLoading(false);
+    }
+  }, [libraryId]);
+
+  // Fetch librarians with pagination and search
+  const fetchLibrarians = useCallback(async (page = 1, search = '') => {
+    if (!libraryId || !isAuthenticated) return;
+
+    setLibrariansLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '50',
+        ...(search && { search }),
+      });
+
+      const response = await fetch(`/api/libraries/${libraryId}/librarians?${params}`, {
+        headers: authHeaders,
+      });
+      if (response.ok) {
+        const data: PaginatedLibrariansResponse = await response.json();
+        setLibrarians(data.librarians);
+        setLibrariansPagination(data.pagination);
+      }
+    } catch (err) {
+      console.error('Error fetching librarians:', err);
+    } finally {
+      setLibrariansLoading(false);
+    }
   }, [libraryId, isAuthenticated, authHeaders]);
+
+  // Initial data loading
+  useEffect(() => {
+    fetchBooks(1, '');
+  }, [fetchBooks]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchLibrarians(1, '');
+    }
+  }, [fetchLibrarians, isAuthenticated]);
+
+  // Handle search changes
+  const handleBooksSearch = useCallback((query: string) => {
+    setBooksSearch(query);
+    setBooksPage(1);
+    fetchBooks(1, query);
+  }, [fetchBooks]);
+
+  const handleLibrariansSearch = useCallback((query: string) => {
+    setLibrariansSearch(query);
+    setLibrariansPage(1);
+    fetchLibrarians(1, query);
+  }, [fetchLibrarians]);
+
+  // Handle page changes
+  const handleBooksPageChange = useCallback((page: number) => {
+    setBooksPage(page);
+    fetchBooks(page, booksSearch);
+  }, [fetchBooks, booksSearch]);
+
+  const handleLibrariansPageChange = useCallback((page: number) => {
+    setLibrariansPage(page);
+    fetchLibrarians(page, librariansSearch);
+  }, [fetchLibrarians, librariansSearch]);
 
   // Helper functions for filtering data
   const myBorrowedBooks = books.filter(book => 
@@ -104,8 +186,17 @@ export default function LibraryPage() {
       gap: '0'
     }}>
       {[
-        { id: 'books', label: 'All Items', count: books.length },
-        { id: 'librarians', label: 'Librarians', count: librarians.length, authRequired: true },
+        { 
+          id: 'books', 
+          label: 'All Items', 
+          count: booksPagination ? booksPagination.totalCount : books.length 
+        },
+        { 
+          id: 'librarians', 
+          label: 'Librarians', 
+          count: librariansPagination ? librariansPagination.totalCount : librarians.length, 
+          authRequired: true 
+        },
         { 
           id: 'my-borrowed', 
           label: 'My Borrowed', 
@@ -151,47 +242,70 @@ export default function LibraryPage() {
 
   const renderAllBooksTab = () => (
     <>
-      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>all items ({books.length})</h2>
-      {books.length === 0 ? (
-        <p style={{ margin: '0 0 15px 0', color: '#666' }}>no items in this library yet</p>
+      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>
+        all items {booksPagination ? `(${booksPagination.totalCount})` : `(${books.length})`}
+      </h2>
+      
+      <SearchBar
+        onSearch={handleBooksSearch}
+        placeholder="Search items by title, author, or description..."
+        initialValue={booksSearch}
+      />
+
+      {booksLoading ? (
+        <p style={{ margin: '20px 0', color: '#666' }}>Loading items...</p>
+      ) : books.length === 0 ? (
+        <p style={{ margin: '0 0 15px 0', color: '#666' }}>
+          {booksSearch ? 'No items found matching your search.' : 'No items in this library yet.'}
+        </p>
       ) : (
-        <table style={{ width: '100%', marginBottom: '20px' }}>
-          <thead>
-            <tr>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>title</th>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>assigned librarian</th>
-              <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {books.map((book) => {
-              const hasActiveLoan = book.loans && book.loans.length > 0;
-              return (
-              <tr key={book.id}>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {auth ? (
-                    <Link href={`/libraries/${libraryId}/books/${book.id}`} style={{ color: 'blue' }}>
-                      {book.title}
-                    </Link>
-                  ) : (
-                    book.title
-                  )}
-                </td>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {book.librarian?.name || '—'}
-                </td>
-                <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                  {hasActiveLoan ? (
-                    <span style={{ color: 'orange', fontSize: '12px' }}>checked out</span>
-                  ) : (
-                    <span style={{ color: 'green', fontSize: '12px' }}>available</span>
-                  )}
-                </td>
+        <>
+          <table style={{ width: '100%', marginBottom: '20px' }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>title</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>assigned librarian</th>
+                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>status</th>
               </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {books.map((book) => {
+                const hasActiveLoan = book.loans && book.loans.length > 0;
+                return (
+                <tr key={book.id}>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {auth ? (
+                      <Link href={`/libraries/${libraryId}/books/${book.id}`} style={{ color: 'blue' }}>
+                        {book.title}
+                      </Link>
+                    ) : (
+                      book.title
+                    )}
+                  </td>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {book.librarian?.name || '—'}
+                  </td>
+                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                    {hasActiveLoan ? (
+                      <span style={{ color: 'orange', fontSize: '12px' }}>checked out</span>
+                    ) : (
+                      <span style={{ color: 'green', fontSize: '12px' }}>available</span>
+                    )}
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+
+          {booksPagination && (
+            <Pagination
+              pagination={booksPagination}
+              onPageChange={handleBooksPageChange}
+              itemName="items"
+            />
+          )}
+        </>
       )}
     </>
   );
@@ -303,46 +417,105 @@ export default function LibraryPage() {
 
     return (
       <>
-        <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>librarians ({librarians.length})</h2>
-        {librarians.length === 0 ? (
-          <p style={{ margin: '0 0 15px 0', color: '#666' }}>no librarians found</p>
+        <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>
+          librarians {librariansPagination ? `(${librariansPagination.totalCount})` : `(${librarians.length})`}
+        </h2>
+        
+        <SearchBar
+          onSearch={handleLibrariansSearch}
+          placeholder="Search librarians by name..."
+          initialValue={librariansSearch}
+        />
+
+        {librariansLoading ? (
+          <p style={{ margin: '20px 0', color: '#666' }}>Loading librarians...</p>
+        ) : librarians.length === 0 ? (
+          <p style={{ margin: '0 0 15px 0', color: '#666' }}>
+            {librariansSearch ? 'No librarians found matching your search.' : 'No librarians found.'}
+          </p>
         ) : (
-          <table style={{ width: '100%', marginBottom: '20px' }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>name</th>
-                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>contact</th>
-                <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>role</th>
-                {(auth?.isSuper || auth) && (
-                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px' }}>actions</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {librarians.map((librarian) => (
-                <tr key={librarian.id}>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                    {librarian.name}
-                    {librarian.id === auth?.id && ' (you)'}
-                  </td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                    {librarian.contactInfo}
-                  </td>
-                  <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
-                    {librarian.isSuper ? 'super librarian' : 'librarian'}
-                  </td>
+          <>
+            <table style={{ width: '100%', marginBottom: '20px' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>name</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>contact</th>
+                  <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999' }}>role</th>
                   {(auth?.isSuper || auth) && (
-                    <td style={{ padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px', whiteSpace: 'nowrap' }}>
-                      {auth?.isSuper && librarian.secretKey && (
-                        <>
-                          <button
-                            onClick={() => copyLoginLink(librarian.secretKey as string, librarian.name)}
+                    <th style={{ textAlign: 'left', padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px' }}>actions</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {librarians.map((librarian) => (
+                  <tr key={librarian.id}>
+                    <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                      {librarian.name}
+                      {librarian.id === auth?.id && ' (you)'}
+                    </td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                      {librarian.contactInfo}
+                    </td>
+                    <td style={{ padding: '4px 8px', border: '1px solid #999' }}>
+                      {librarian.isSuper ? 'super librarian' : 'librarian'}
+                    </td>
+                    {(auth?.isSuper || auth) && (
+                      <td style={{ padding: '4px 8px', border: '1px solid #999', minWidth: '300px', width: '300px', whiteSpace: 'nowrap' }}>
+                        {auth?.isSuper && librarian.secretKey && (
+                          <>
+                            <button
+                              onClick={() => copyLoginLink(librarian.secretKey as string, librarian.name)}
+                              style={{
+                                padding: '4px 8px',
+                                fontSize: '12px',
+                                border: '1px solid #999',
+                                backgroundColor: '#f7fafc',
+                                cursor: 'pointer',
+                                marginRight: '4px',
+                                fontFamily: 'inherit',
+                                boxSizing: 'border-box',
+                                verticalAlign: 'top',
+                                lineHeight: '16px',
+                                height: '28px'
+                              }}
+                            >
+                              copy login link
+                            </button>
+                          </>
+                        )}
+                        {(auth?.isSuper || auth?.id === librarian.id) && (
+                          <Link
+                            href={`/libraries/${libraryId}/librarians/${librarian.id}/edit`}
                             style={{
                               padding: '4px 8px',
                               fontSize: '12px',
                               border: '1px solid #999',
-                              backgroundColor: '#f7fafc',
+                              backgroundColor: '#e6f3ff',
                               cursor: 'pointer',
+                              marginRight: '4px',
+                              textDecoration: 'none',
+                              color: 'black',
+                              display: 'inline-block',
+                              fontFamily: 'inherit',
+                              boxSizing: 'border-box',
+                              verticalAlign: 'top',
+                              lineHeight: '16px',
+                              height: '28px'
+                            }}
+                          >
+                            edit
+                          </Link>
+                        )}
+                        {auth?.isSuper && !librarian.isSuper && (
+                          <button
+                            onClick={() => promoteLibrarian(librarian.id, librarian.name)}
+                            disabled={promotingLibrarianId === librarian.id}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              border: '1px solid #999',
+                              backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fff3cd',
+                              cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
                               marginRight: '4px',
                               fontFamily: 'inherit',
                               boxSizing: 'border-box',
@@ -351,81 +524,45 @@ export default function LibraryPage() {
                               height: '28px'
                             }}
                           >
-                            copy login link
+                            {promotingLibrarianId === librarian.id ? 'promoting..' : 'promote to super'}
                           </button>
-                        </>
-                      )}
-                      {(auth?.isSuper || auth?.id === librarian.id) && (
-                        <Link
-                          href={`/libraries/${libraryId}/librarians/${librarian.id}/edit`}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            border: '1px solid #999',
-                            backgroundColor: '#e6f3ff',
-                            cursor: 'pointer',
-                            marginRight: '4px',
-                            textDecoration: 'none',
-                            color: 'black',
-                            display: 'inline-block',
-                            fontFamily: 'inherit',
-                            boxSizing: 'border-box',
-                            verticalAlign: 'top',
-                            lineHeight: '16px',
-                            height: '28px'
-                          }}
-                        >
-                          edit
-                        </Link>
-                      )}
-                      {auth?.isSuper && !librarian.isSuper && (
-                        <button
-                          onClick={() => promoteLibrarian(librarian.id, librarian.name)}
-                          disabled={promotingLibrarianId === librarian.id}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            border: '1px solid #999',
-                            backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fff3cd',
-                            cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
-                            marginRight: '4px',
-                            fontFamily: 'inherit',
-                            boxSizing: 'border-box',
-                            verticalAlign: 'top',
-                            lineHeight: '16px',
-                            height: '28px'
-                          }}
-                        >
-                          {promotingLibrarianId === librarian.id ? 'promoting...' : 'promote to super'}
-                        </button>
-                      )}
-                      {auth?.isSuper && librarian.isSuper && librarian.id !== auth?.id && (
-                        <button
-                          onClick={() => demoteLibrarian(librarian.id, librarian.name)}
-                          disabled={promotingLibrarianId === librarian.id}
-                          style={{
-                            padding: '4px 8px',
-                            fontSize: '12px',
-                            border: '1px solid #999',
-                            backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fee2e2',
-                            cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
-                            marginRight: '4px',
-                            fontFamily: 'inherit',
-                            boxSizing: 'border-box',
-                            verticalAlign: 'top',
-                            lineHeight: '16px',
-                            height: '28px'
-                          }}
-                        >
-                          {promotingLibrarianId === librarian.id ? 'demoting...' : 'remove super'}
-                        </button>
-                      )}
-                    </td>
-                  )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                        )}
+                        {auth?.isSuper && librarian.isSuper && librarian.id !== auth?.id && (
+                          <button
+                            onClick={() => demoteLibrarian(librarian.id, librarian.name)}
+                            disabled={promotingLibrarianId === librarian.id}
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: '12px',
+                              border: '1px solid #999',
+                              backgroundColor: promotingLibrarianId === librarian.id ? '#e5e5e5' : '#fee2e2',
+                              cursor: promotingLibrarianId === librarian.id ? 'not-allowed' : 'pointer',
+                              marginRight: '4px',
+                              fontFamily: 'inherit',
+                              boxSizing: 'border-box',
+                              verticalAlign: 'top',
+                              lineHeight: '16px',
+                              height: '28px'
+                            }}
+                          >
+                            {promotingLibrarianId === librarian.id ? 'demoting...' : 'remove super'}
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {librariansPagination && (
+              <Pagination
+                pagination={librariansPagination}
+                onPageChange={handleLibrariansPageChange}
+                itemName="librarians"
+              />
+            )}
+          </>
         )}
 
         {auth?.isSuper && (
