@@ -26,14 +26,14 @@ export async function GET(
     const search = searchParams.get('search');
 
     if (page || limit || search) {
-      // Use paginated method
+      // Use enhanced search with semantic capabilities
       const options = {
         page: page ? parseInt(page, 10) : undefined,
         limit: limit ? Math.min(parseInt(limit, 10), 100) : undefined, // Cap at 100
         search: search || undefined,
       };
 
-      const result = await DatabaseService.getBooksByLibraryIdPaginated(libraryId, options);
+      const result = await DatabaseService.searchBooksWithSemantics(libraryId, options);
       return NextResponse.json(result);
     } else {
       // Use original method for backward compatibility

@@ -37,6 +37,7 @@ model Book {
   organizingRules      String?
   checkInInstructions  String?
   checkOutInstructions String?
+  embedding            String? // JSON string of embedding vector for semantic search
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   

@@ -12,6 +12,7 @@
   "private": true,
   "dependencies": {
     "@prisma/client": "^6.16.2",
+    "@xenova/transformers": "^2.17.2",
     "next": "~15.2.4",
     "prisma": "^6.16.2",
     "react": "19.0.0",

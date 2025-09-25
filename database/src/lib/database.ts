@@ -1,4 +1,12 @@
 import { PrismaClient } from '@prisma/client';
+import { Book, Library, Librarian, Loan } from '@usufruit/models';
+
+// Type for semantic search results
+interface SemanticSearchResult {
+  book: Book & { library: Library; librarian: Librarian; loans: Loan[] };
+  semanticScore: number;
+  ngramMatch: boolean;
+}
 
 // Global Prisma instance to prevent multiple connections in development
 declare global {
@@ -11,6 +19,10 @@ export const prisma = globalThis.__prisma || new PrismaClient();
 if (process.env.NODE_ENV === 'development') {
   globalThis.__prisma = prisma;
 }
+
+// Simple in-memory cache for semantic search results
+const semanticSearchCache = new Map<string, { results: SemanticSearchResult[], timestamp: number }>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Database utility functions for Usufruit
 export class DatabaseService {
@@ -321,7 +333,7 @@ export class DatabaseService {
     libraryId: string;
     librarianId: string;
   }) {
-    return prisma.book.create({
+    const book = await prisma.book.create({
       data,
       include: {
         library: true,
@@ -329,6 +341,13 @@ export class DatabaseService {
         loans: true,
       },
     });
+
+    // Generate embedding for the new book asynchronously
+    this.generateBookEmbedding(book.id).catch(error => {
+      console.error(`Failed to generate embedding for new book ${book.id}:`, error);
+    });
+
+    return book;
   }
 
   static async getBooks() {
@@ -528,5 +547,278 @@ export class DatabaseService {
         librarian: true,
       },
     });
+  }
+
+  // ===== SEMANTIC SEARCH METHODS =====
+
+  /**
+   * Generate and store embedding for a book
+   */
+  static async generateBookEmbedding(bookId: string): Promise<void> {
+    try {
+      // Dynamic imports to avoid loading heavy ML models unless needed
+      const { generateEmbedding } = await import('../utils/embedding-service');
+      const { getBookEmbeddingText } = await import('../utils/semantic-search');
+
+      // Get the book data
+      const book = await this.getBookById(bookId);
+      if (!book) return;
+
+      // Generate embedding text
+      const embeddingText = getBookEmbeddingText(book);
+      
+      // Generate embedding vector
+      const embeddingVector = await generateEmbedding(embeddingText);
+      
+      // Store as JSON string in database
+      await prisma.book.update({
+        where: { id: bookId },
+        data: { embedding: JSON.stringify(embeddingVector) }
+      });
+    } catch (error) {
+      console.error(`Error generating embedding for book ${bookId}:`, error);
+    }
+  }
+
+  /**
+   * Enhanced search with semantic capabilities
+   */
+  static async searchBooksWithSemantics(
+    libraryId: string,
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      semanticThreshold?: number;
+    } = {}
+  ) {
+    const { page = 1, limit = 50, search, semanticThreshold = 0.4 } = options;
+    
+    if (!search) {
+      // No search query - use regular pagination
+      return await this.getBooksByLibraryIdPaginated(libraryId, { page, limit });
+    }
+
+    // Get ngram search results first
+    const ngramResults = await this.getBooksByLibraryIdPaginated(
+      libraryId, 
+      { page, limit: 100, search } // Get more for combining
+    );
+
+    // If we have enough ngram results, we can skip semantic enhancement for performance
+    // But always try semantic search to get better results
+    // if (ngramResults.books.length >= limit) {
+    //   return {
+    //     books: ngramResults.books.slice(0, limit),
+    //     pagination: {
+    //       ...ngramResults.pagination,
+    //       totalCount: Math.min(ngramResults.pagination.totalCount, limit)
+    //     }
+    //   };
+    // }
+
+    try {
+      // Perform semantic search with limited results for performance
+      const semanticResults = await this.performSemanticSearch(libraryId, search, semanticThreshold, limit * 2);
+      
+      // Dynamic import for combining results
+      const { combineSearchResults } = await import('../utils/semantic-search');
+      
+      // Combine results
+      const combined = combineSearchResults(ngramResults.books, semanticResults, semanticThreshold);
+      
+      // Apply pagination to combined results
+      const skip = (page - 1) * limit;
+      const paginatedBooks = combined.books.slice(skip, skip + limit);
+      
+      return {
+        books: paginatedBooks,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(combined.totalMatches / limit),
+          totalCount: combined.totalMatches,
+          hasNextPage: skip + limit < combined.totalMatches,
+          hasPreviousPage: page > 1,
+        },
+        semanticEnhanced: true,
+        semanticResults: combined.semanticResults.slice(skip, skip + limit)
+      };
+    } catch (error) {
+      console.error('Semantic search failed, falling back to ngram only:', error);
+      return ngramResults;
+    }
+  }
+
+  /**
+   * Perform semantic search against book collection
+   * Optimized for performance with early termination and caching
+   */
+  private static async performSemanticSearch(
+    libraryId: string,
+    query: string,
+    threshold: number,
+    maxResults = 50
+  ) {
+    // Check cache first
+    const cacheKey = `${libraryId}:${query}:${threshold}`;
+    const cached = semanticSearchCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return cached.results.slice(0, maxResults);
+    }
+
+    // Dynamic imports to avoid loading heavy ML models unless needed
+    const { generateEmbedding } = await import('../utils/embedding-service');
+    const { cosineSimilarity } = await import('../utils/semantic-search');
+
+    // Generate embedding for search query
+    const queryEmbedding = await generateEmbedding(query);
+    // Get books with embeddings - limit database overhead by selecting only needed fields
+    const booksWithEmbeddings = await prisma.book.findMany({
+      where: {
+        libraryId,
+        embedding: { not: null }
+      },
+      select: {
+        id: true,
+        title: true,
+        author: true,
+        description: true,
+        borrowDurationDays: true,
+        organizingRules: true,
+        checkInInstructions: true,
+        checkOutInstructions: true,
+        createdAt: true,
+        updatedAt: true,
+        libraryId: true,
+        librarianId: true,
+        embedding: true,
+        library: true,
+        librarian: true,
+        loans: {
+          where: { returnedAt: null }
+        }
+      }
+    });
+
+    // If we have very few books with embeddings, try to generate some missing ones
+    if (booksWithEmbeddings.length < 5) {
+      const generated = await this.generateMissingEmbeddings(libraryId, 20);
+      
+      // Re-fetch if we generated new embeddings
+      if (generated > 0) {
+        const updatedBooks = await prisma.book.findMany({
+          where: {
+            libraryId,
+            embedding: { not: null }
+          },
+          select: {
+            id: true,
+            title: true,
+            author: true,
+            description: true,
+            borrowDurationDays: true,
+            organizingRules: true,
+            checkInInstructions: true,
+            checkOutInstructions: true,
+            createdAt: true,
+            updatedAt: true,
+            libraryId: true,
+            librarianId: true,
+            embedding: true,
+            library: true,
+            librarian: true,
+            loans: {
+              where: { returnedAt: null }
+            }
+          }
+        });
+        booksWithEmbeddings.push(...updatedBooks.filter(book => 
+          !booksWithEmbeddings.find(existing => existing.id === book.id)
+        ));
+      }
+    }
+
+    const results: SemanticSearchResult[] = [];
+    const parsedEmbeddings = new Map<string, number[]>(); // Cache parsed embeddings
+
+    for (const book of booksWithEmbeddings) {
+      try {
+        // Parse and cache embedding
+        if (!book.embedding) continue;
+        
+        let bookEmbedding = parsedEmbeddings.get(book.id);
+        if (!bookEmbedding) {
+          bookEmbedding = JSON.parse(book.embedding);
+          parsedEmbeddings.set(book.id, bookEmbedding);
+        }
+        
+        // Calculate similarity
+        const similarity = cosineSimilarity(queryEmbedding, bookEmbedding);
+        
+        if (similarity >= threshold) {
+          results.push({
+            book,
+            semanticScore: similarity,
+            ngramMatch: false // Will be set later in combineSearchResults
+          });
+          
+          // Early termination: if we have enough high-quality results, stop processing
+          if (results.length >= maxResults * 2) {
+            break;
+          }
+        }
+      } catch (error) {
+        console.error(`Error processing embedding for book ${book.id}:`, error);
+      }
+    }
+
+    // Sort by semantic score (highest first) and limit results
+    const sortedResults = results
+      .sort((a, b) => b.semanticScore - a.semanticScore)
+      .slice(0, maxResults);
+
+    // Cache the results
+    semanticSearchCache.set(cacheKey, {
+      results: sortedResults,
+      timestamp: Date.now()
+    });
+
+    // Clean up old cache entries occasionally
+    if (semanticSearchCache.size > 100) {
+      const now = Date.now();
+      for (const [key, value] of semanticSearchCache.entries()) {
+        if (now - value.timestamp > CACHE_TTL) {
+          semanticSearchCache.delete(key);
+        }
+      }
+    }
+
+    return sortedResults;
+  }
+
+  /**
+   * Generate embeddings for books that don't have them (lazy loading)
+   */
+  static async generateMissingEmbeddings(libraryId: string, maxBooks = 10): Promise<number> {
+    try {
+      const booksWithoutEmbeddings = await prisma.book.findMany({
+        where: {
+          libraryId,
+          embedding: null
+        },
+        take: maxBooks
+      });
+
+      let generated = 0;
+      for (const book of booksWithoutEmbeddings) {
+        await this.generateBookEmbedding(book.id);
+        generated++;
+      }
+
+      return generated;
+    } catch (error) {
+      console.error('Error generating missing embeddings:', error);
+      return 0;
+    }
   }
 }
