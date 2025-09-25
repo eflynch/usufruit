@@ -104,7 +104,7 @@ export default function LibraryPage() {
       gap: '0'
     }}>
       {[
-        { id: 'books', label: 'All Books', count: books.length },
+        { id: 'books', label: 'All Items', count: books.length },
         { id: 'librarians', label: 'Librarians', count: librarians.length, authRequired: true },
         { 
           id: 'my-borrowed', 
@@ -113,7 +113,7 @@ export default function LibraryPage() {
           overdueCount: overdueCount > 0 ? overdueCount : undefined,
           authRequired: true 
         },
-        { id: 'my-books', label: 'My Books', count: myBooks.length, authRequired: true }
+        { id: 'my-books', label: 'My Items', count: myBooks.length, authRequired: true }
       ].map(tab => {
         if (tab.authRequired && !isAuthenticated) return null;
         return (
@@ -151,9 +151,9 @@ export default function LibraryPage() {
 
   const renderAllBooksTab = () => (
     <>
-      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>all books ({books.length})</h2>
+      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>all items ({books.length})</h2>
       {books.length === 0 ? (
-        <p style={{ margin: '0 0 15px 0', color: '#666' }}>no books in this library yet</p>
+        <p style={{ margin: '0 0 15px 0', color: '#666' }}>no items in this library yet</p>
       ) : (
         <table style={{ width: '100%', marginBottom: '20px' }}>
           <thead>
@@ -440,7 +440,7 @@ export default function LibraryPage() {
   const renderMyBorrowedTab = () => (
     <>
       <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>
-        my borrowed books ({myBorrowedBooks.length})
+        my borrowed items ({myBorrowedBooks.length})
         {overdueCount > 0 && (
           <span style={{ 
             color: '#dc2626', 
@@ -453,7 +453,7 @@ export default function LibraryPage() {
         )}
       </h2>
       {myBorrowedBooks.length === 0 ? (
-        <p style={{ margin: '0 0 15px 0', color: '#666' }}>you haven&apos;t borrowed any books</p>
+        <p style={{ margin: '0 0 15px 0', color: '#666' }}>you haven&apos;t borrowed any items</p>
       ) : (
         <table style={{ width: '100%', marginBottom: '20px' }}>
           <thead>
@@ -518,14 +518,14 @@ export default function LibraryPage() {
 
   const renderMyBooksTab = () => (
     <>
-      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>my books ({myBooks.length})</h2>
+      <h2 style={{ fontSize: '18px', margin: '0 0 10px 0' }}>my items ({myBooks.length})</h2>
       
       <p style={{ margin: '0 0 20px 0' }}>
-        <Link href={`/libraries/${libraryId}/books/new`} style={{ color: 'blue' }}>+ add a book</Link>
+        <Link href={`/libraries/${libraryId}/books/new`} style={{ color: 'blue' }}>+ add an item</Link>
       </p>
 
       {myBooks.length === 0 ? (
-        <p style={{ margin: '0 0 15px 0', color: '#666' }}>you haven&apos;t added any books yet</p>
+        <p style={{ margin: '0 0 15px 0', color: '#666' }}>you haven&apos;t added any items yet</p>
       ) : (
         <table style={{ width: '100%', marginBottom: '20px' }}>
           <thead>
@@ -627,7 +627,7 @@ export default function LibraryPage() {
           borderRadius: '4px'
         }}>
           <strong style={{ color: '#dc2626' }}>
-            ⚠️ You have {overdueCount} overdue book{overdueCount > 1 ? 's' : ''}!
+            ⚠️ You have {overdueCount} overdue items{overdueCount > 1 ? 's' : ''}!
           </strong>
           <span style={{ marginLeft: '8px', fontSize: '12px', color: '#666' }}>
             Check the &ldquo;My Borrowed&rdquo; tab to see details.

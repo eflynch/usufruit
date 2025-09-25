@@ -59,7 +59,7 @@ export default function NewBookPage() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create book');
+        throw new Error(errorData.error || 'Failed to create item');
       }
 
       const result = await response.json();
@@ -91,9 +91,9 @@ export default function NewBookPage() {
 
   return (
     <LibraryPageContainer>
-      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add book</h1>
+      <h1 style={{ fontSize: '24px', margin: '0 0 10px 0' }}>add item</h1>
       <p style={{ margin: '0 0 20px 0', color: '#666' }}>
-        add a new book to the library collection
+        add a new item to the library collection
       </p>
       
       <BackToLibraryLink libraryId={libraryId} />
@@ -111,7 +111,7 @@ export default function NewBookPage() {
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="enter book title"
+            placeholder="enter item title"
             style={{
               width: '100%',
               maxWidth: '400px',

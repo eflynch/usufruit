@@ -94,8 +94,8 @@ export default function Auth() {
         <h2 style={{ fontSize: '18px', margin: '20px 0 10px 0' }}>what would you like to do?</h2>
         <ul style={{ margin: '0 0 15px 20px', padding: '0' }}>
           <li><Link href={`/libraries/${success.library.id}`} style={{ color: 'blue' }}>view library</Link></li>
-          <li><Link href={`/libraries/${success.library.id}/books`} style={{ color: 'blue' }}>browse books</Link></li>
-          <li><Link href={`/libraries/${success.library.id}/books/new`} style={{ color: 'blue' }}>add a book</Link></li>
+          <li><Link href={`/libraries/${success.library.id}/books`} style={{ color: 'blue' }}>browse items</Link></li>
+          <li><Link href={`/libraries/${success.library.id}/books/new`} style={{ color: 'blue' }}>add an item</Link></li>
           {success.librarian.isSuper && (
             <>
               <li><Link href={`/libraries/${success.library.id}/librarians`} style={{ color: 'blue' }}>manage librarians</Link></li>

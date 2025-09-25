@@ -36,9 +36,9 @@ export default function BookPage() {
         const bookResponse = await fetch(`/api/libraries/${libraryId}/books/${bookId}`);
         if (!bookResponse.ok) {
           if (bookResponse.status === 404) {
-            throw new Error('Book not found');
+            throw new Error('Item not found');
           }
-          throw new Error('Failed to fetch book');
+          throw new Error('Failed to fetch item');
         }
         const bookData = await bookResponse.json();
         setBook(bookData);
@@ -143,7 +143,7 @@ export default function BookPage() {
         margin: '20px',
         maxWidth: '800px'
       }}>
-        loading book...
+        loading item...
       </div>
     );
   }
@@ -170,7 +170,7 @@ export default function BookPage() {
   if (!book) {
     return (
       <LibraryPageContainer>
-        <h1>book not found</h1>
+        <h1>item not found</h1>
         <BackToLibraryLink libraryId={libraryId} />
       </LibraryPageContainer>
     );
@@ -186,7 +186,7 @@ export default function BookPage() {
       {(auth?.isSuper || auth?.id === book.librarianId) && (
         <p style={{ margin: '10px 0' }}>
           <Link href={`/libraries/${libraryId}/books/${bookId}/edit`} style={{ color: 'blue' }}>
-            edit book
+            edit item 
           </Link>
         </p>
       )}
