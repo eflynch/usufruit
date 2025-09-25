@@ -1,11 +1,8 @@
 // Server-side embedding service using Transformers.js
 // This runs only on the Node.js server
 
-type EmbeddingPipeline = {
-  (text: string, options?: { pooling?: string; normalize?: boolean }): Promise<{ data: Float32Array }>;
-};
-
-let pipeline: EmbeddingPipeline | null = null;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let pipeline: any = null;
 let isInitializing = false;
 
 /**
@@ -36,9 +33,7 @@ async function initializePipeline() {
       'Xenova/all-MiniLM-L6-v2',
       { 
         // Cache model locally to avoid re-downloading
-        cache_dir: process.env.NODE_ENV === 'production' ? './.cache' : './node_modules/.cache',
-        // Run on CPU (no GPU required)
-        device: 'cpu'
+        cache_dir: process.env.NODE_ENV === 'production' ? './.cache' : './node_modules/.cache'
       }
     );
     
@@ -60,6 +55,10 @@ export async function generateEmbedding(text: string): Promise<number[]> {
     const model = await initializePipeline();
     
     // Generate embedding
+    if (!model) {
+      throw new Error('Model pipeline is not initialized');
+    }
+    
     const output = await model(text.trim(), {
       pooling: 'mean',
       normalize: true

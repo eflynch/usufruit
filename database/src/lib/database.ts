@@ -557,15 +557,15 @@ export class DatabaseService {
   static async generateBookEmbedding(bookId: string): Promise<void> {
     try {
       // Dynamic imports to avoid loading heavy ML models unless needed
-      const { generateEmbedding } = await import('../utils/embedding-service');
-      const { getBookEmbeddingText } = await import('../utils/semantic-search');
+      const { generateEmbedding } = await import('../utils/embedding-service.js');
+      const { getBookEmbeddingText } = await import('../utils/semantic-search.js');
 
       // Get the book data
       const book = await this.getBookById(bookId);
       if (!book) return;
 
       // Generate embedding text
-      const embeddingText = getBookEmbeddingText(book);
+      const embeddingText = getBookEmbeddingText({ ...book, author: book.author ?? undefined } as Book);
       
       // Generate embedding vector
       const embeddingVector = await generateEmbedding(embeddingText);
@@ -622,10 +622,14 @@ export class DatabaseService {
       const semanticResults = await this.performSemanticSearch(libraryId, search, semanticThreshold, limit * 2);
       
       // Dynamic import for combining results
-      const { combineSearchResults } = await import('../utils/semantic-search');
+      const { combineSearchResults } = await import('../utils/semantic-search.js');
       
       // Combine results
-      const combined = combineSearchResults(ngramResults.books, semanticResults, semanticThreshold);
+      const combined = combineSearchResults(
+        ngramResults.books.map(book => ({ ...book, author: book.author ?? undefined } as Book)), 
+        semanticResults, 
+        semanticThreshold
+      );
       
       // Apply pagination to combined results
       const skip = (page - 1) * limit;
@@ -667,8 +671,8 @@ export class DatabaseService {
     }
 
     // Dynamic imports to avoid loading heavy ML models unless needed
-    const { generateEmbedding } = await import('../utils/embedding-service');
-    const { cosineSimilarity } = await import('../utils/semantic-search');
+    const { generateEmbedding } = await import('../utils/embedding-service.js');
+    const { cosineSimilarity } = await import('../utils/semantic-search.js');
 
     // Generate embedding for search query
     const queryEmbedding = await generateEmbedding(query);
@@ -748,7 +752,7 @@ export class DatabaseService {
         
         let bookEmbedding = parsedEmbeddings.get(book.id);
         if (!bookEmbedding) {
-          bookEmbedding = JSON.parse(book.embedding);
+          bookEmbedding = JSON.parse(book.embedding) as number[];
           parsedEmbeddings.set(book.id, bookEmbedding);
         }
         
@@ -757,7 +761,7 @@ export class DatabaseService {
         
         if (similarity >= threshold) {
           results.push({
-            book,
+            book: book as Book & { library: Library; librarian: Librarian; loans: Loan[] },
             semanticScore: similarity,
             ngramMatch: false // Will be set later in combineSearchResults
           });
