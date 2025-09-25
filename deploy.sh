@@ -241,7 +241,7 @@ create_dockerfile() {
     
     cat > Dockerfile << 'EOF'
 # Build stage
-FROM node:18-alpine AS builder
+FROM node:18-bullseye-slim AS builder
 
 WORKDIR /app
 
@@ -274,13 +274,13 @@ RUN echo "=== Building Next.js app ===" && \
     npx nx build usufruit --verbose
 
 # Production stage
-FROM node:18-alpine AS runner
+FROM node:18-bullseye-slim AS runner
 
 WORKDIR /app
 
 # Create non-root user
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
+RUN groupadd --system --gid 1001 nodejs
+RUN useradd --system --uid 1001 --gid nodejs --shell /bin/bash --create-home nextjs
 
 # Copy only what we need for production
 COPY --from=builder --chown=nextjs:nodejs /app/apps/usufruit/.next ./.next
